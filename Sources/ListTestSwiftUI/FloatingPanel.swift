@@ -1,10 +1,16 @@
 import AppKit
+import SwiftData
 import SwiftUI
 
 final class FloatingPanel: NSPanel {
+    @MainActor
     init() {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 140),
+            contentRect: NSRect(
+                x: 0, y: 0,
+                width: Layout.panelWidth,
+                height: Layout.panelHeight
+            ),
             styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -19,7 +25,8 @@ final class FloatingPanel: NSPanel {
         backgroundColor = .clear
         hasShadow = true
 
-        contentView = NSHostingView(rootView: ContentView())
+        let root = ContentView().modelContainer(Storage.container)
+        contentView = NSHostingView(rootView: root)
     }
 
     override var canBecomeKey: Bool { true }
