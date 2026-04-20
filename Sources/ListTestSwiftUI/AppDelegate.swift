@@ -1,6 +1,7 @@
 import AppKit
-import SwiftUI
 import Carbon.HIToolbox
+import SwiftData
+import SwiftUI
 
 @main
 @MainActor
@@ -24,36 +25,110 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupStatusItem()
         panel = FloatingPanel()
         registerHotKey()
+        ClipboardMonitor.shared.start()
+        Paster.ensureAccessibility()
     }
 
     private func setupStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = item.button {
-            button.title = "L4"
+            button.title = "📋"
             button.target = self
             button.action = #selector(statusItemClicked)
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
         statusItem = item
     }
 
     @objc private func statusItemClicked() {
-        togglePanel()
+        guard let event = NSApp.currentEvent else {
+            togglePanel()
+            return
+        }
+        if event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
+            showMenu()
+        } else {
+            togglePanel()
+        }
+    }
+
+    private func showMenu() {
+        let menu = NSMenu()
+
+        let ocr = NSMenuItem(
+            title: "OCR для скриншотов",
+            action: #selector(toggleOCR),
+            keyEquivalent: ""
+        )
+        ocr.state = AppSettings.shared.ocrEnabled ? .on : .off
+        ocr.target = self
+        menu.addItem(ocr)
+
+        menu.addItem(.separator())
+
+        let clear = NSMenuItem(
+            title: "Очистить историю",
+            action: #selector(clearHistory),
+            keyEquivalent: ""
+        )
+        clear.target = self
+        menu.addItem(clear)
+
+        menu.addItem(.separator())
+
+        let quit = NSMenuItem(title: "Выход", action: #selector(quit), keyEquivalent: "q")
+        quit.target = self
+        menu.addItem(quit)
+
+        guard let button = statusItem?.button else { return }
+        let origin = NSPoint(x: 0, y: button.bounds.height + 4)
+        menu.popUp(positioning: nil, at: origin, in: button)
+    }
+
+    @objc private func toggleOCR() {
+        AppSettings.shared.ocrEnabled.toggle()
+    }
+
+    @objc private func clearHistory() {
+        let ctx = Storage.container.mainContext
+        let items = (try? ctx.fetch(FetchDescriptor<ClipboardItem>())) ?? []
+        let fm = FileManager.default
+        for item in items {
+            if let path = item.imagePath {
+                try? fm.removeItem(at: Storage.imageURL(for: path))
+            }
+            ctx.delete(item)
+        }
+        try? ctx.save()
+    }
+
+    @objc private func quit() {
+        NSApp.terminate(nil)
     }
 
     func togglePanel() {
         guard let panel else { return }
         if panel.isVisible {
-            panel.orderOut(nil)
+            hidePanel()
         } else {
-            if let screen = NSScreen.main {
-                let frame = panel.frame
-                let x = screen.visibleFrame.midX - frame.width / 2
-                let y = screen.visibleFrame.midY - frame.height / 2
-                panel.setFrameOrigin(NSPoint(x: x, y: y))
-            }
-            panel.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+            showPanel()
         }
+    }
+
+    func showPanel() {
+        guard let panel else { return }
+        Paster.previousApp = NSWorkspace.shared.frontmostApplication
+        if let screen = NSScreen.main {
+            let frame = panel.frame
+            let x = screen.visibleFrame.midX - frame.width / 2
+            let y = screen.visibleFrame.midY - frame.height / 2
+            panel.setFrameOrigin(NSPoint(x: x, y: y))
+        }
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    func hidePanel() {
+        panel?.orderOut(nil)
     }
 
     private func registerHotKey() {
@@ -62,16 +137,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             eventClass: OSType(kEventClassKeyboard),
             eventKind: UInt32(kEventHotKeyPressed)
         )
-
         InstallEventHandler(
             GetApplicationEventTarget(),
             AppDelegate.hotKeyCallback,
-            1,
-            &spec,
-            nil,
-            nil
+            1, &spec, nil, nil
         )
-
         var ref: EventHotKeyRef?
         RegisterEventHotKey(
             UInt32(kVK_ANSI_4),
