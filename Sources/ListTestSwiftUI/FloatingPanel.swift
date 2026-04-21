@@ -24,7 +24,6 @@ final class FloatingPanel: NSPanel {
         isOpaque = false
         backgroundColor = .clear
         hasShadow = true
-        appearance = NSAppearance(named: .darkAqua)
 
         let root = ContentView().modelContainer(Storage.container)
         contentView = NSHostingView(rootView: root)
@@ -34,16 +33,4 @@ final class FloatingPanel: NSPanel {
     override var canBecomeMain: Bool { true }
 }
 
-struct VisualEffectBackground: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = .hudWindow
-        view.state = .active
-        view.blendingMode = .behindWindow
-        view.appearance = NSAppearance(named: .darkAqua)
-        return view
-    }
-
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
-}
 

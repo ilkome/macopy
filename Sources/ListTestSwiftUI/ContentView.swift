@@ -81,6 +81,7 @@ struct ContentView: View {
     @State private var rowsById: [UUID: RowModel] = [:]
     @State private var minuteTick = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
     @State private var searchTask: Task<Void, Never>?
+    @ObservedObject private var settings = AppSettings.shared
 
     private var selectedItem: ClipboardItem? {
         selection.flatMap { rowsById[$0]?.item }
@@ -175,11 +176,9 @@ struct ContentView: View {
             }
         }
         .frame(width: Layout.panelWidth, height: Layout.panelHeight)
-        .background {
-            VisualEffectBackground()
-                .overlay(Color.black.opacity(0.35))
-        }
+        .background(settings.panelMaterial.material)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .transaction { $0.animation = nil }
         .onAppear {
             recompute()
             searchFocused = true
@@ -403,6 +402,14 @@ struct ContentView: View {
                     }
                     return .ignored
                 }
+                .onKeyPress(.space) {
+                    guard let item = selectedItem,
+                          item.kind == .image,
+                          let path = item.imagePath
+                    else { return .ignored }
+                    QuickLookController.shared.toggle(url: Storage.imageURL(for: path))
+                    return .handled
+                }
             Text("⌘4")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
@@ -410,8 +417,29 @@ struct ContentView: View {
                 .padding(.vertical, 2)
                 .background(Color.secondary.opacity(0.15))
                 .clipShape(RoundedRectangle(cornerRadius: 4))
+            settingsMenu
         }
         .padding(.horizontal, 18)
+    }
+
+    private var settingsMenu: some View {
+        Menu {
+            Toggle("OCR для скриншотов", isOn: $settings.ocrEnabled)
+            Picker("Плотность фона", selection: $settings.panelMaterial) {
+                ForEach(PanelMaterial.allCases) { option in
+                    Text(option.title).tag(option)
+                }
+            }
+            Divider()
+            Button("Выход") { NSApp.terminate(nil) }
+        } label: {
+            Image(systemName: "gearshape")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
     }
 
     private func listView(proxy: ScrollViewProxy) -> some View {
@@ -575,7 +603,6 @@ struct ItemRow: View {
         case .url:
             Text(renderedText)
                 .lineLimit(1)
-                .foregroundStyle(match == nil ? Color.blue : Color.primary)
                 .truncationMode(.middle)
         default:
             Text(renderedText)
@@ -587,7 +614,7 @@ struct ItemRow: View {
     private var imageContent: some View {
         HStack(spacing: 10) {
             if let path = item.imagePath,
-               let image = ImageCache.image(at: Storage.imageURL(for: path)) {
+               let image = ImageCache.thumbnail(at: Storage.imageURL(for: path), maxPixelSize: 88) {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
@@ -805,7 +832,8 @@ struct PreviewPane: View {
                     Text(raw)
                         .font(.system(.body, design: .monospaced))
                         .multilineTextAlignment(.leading)
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(.link)
+                        .underline()
                 }
                 .buttonStyle(.plain)
                 if let host = url.host {

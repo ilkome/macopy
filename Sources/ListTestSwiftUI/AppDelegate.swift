@@ -25,7 +25,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel = FloatingPanel()
         registerHotKey()
         ClipboardMonitor.shared.start()
-        Paster.ensureAccessibility()
     }
 
     private func setupStatusItem() {
