@@ -48,6 +48,12 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 </plist>
 PLIST
 
-codesign --force --deep --sign - "$APP_DIR"
+SIGN_IDENTITY="ListTestSwiftUI Dev"
+if security find-identity -v -p codesigning | grep -q "$SIGN_IDENTITY"; then
+    codesign --force --deep --sign "$SIGN_IDENTITY" "$APP_DIR"
+else
+    echo "⚠  '$SIGN_IDENTITY' not found. Run ./setup-signing.sh once for persistent Accessibility permission. Falling back to ad-hoc."
+    codesign --force --deep --sign - "$APP_DIR"
+fi
 
 echo "→ готово: $(pwd)/$APP_DIR"

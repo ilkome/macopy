@@ -18,7 +18,30 @@
 Создаст `ListTestSwiftUI.app` рядом с `Package.swift`. Скрипт:
 - собирает release-бинарь
 - пакует в `.app` со стабильным bundle id `com.ilkome.ListTestSwiftUI`
-- делает ad-hoc codesign (`codesign -s -`) — благодаря стабильному пути и подписи разрешение Accessibility сохраняется между пересборками.
+- подписывает приложение (см. раздел "Подпись" ниже)
+
+### Подпись и постоянный Accessibility permission
+
+Без платного Apple Developer Program можно создать self-signed сертификат - разрешение Accessibility будет сохраняться между пересборками, TCC запоминает permission по стабильной designated requirement сертификата.
+
+Однократная настройка:
+
+```bash
+./setup-signing.sh
+```
+
+Создаст сертификат `ListTestSwiftUI Dev` в login keychain (trust scope ограничен только code signing). После этого:
+
+1. `./build-app.sh` будет подписывать этим сертификатом
+2. Один раз выдай Accessibility: **Системные настройки → Приватность и безопасность → Универсальный доступ**, добавь `.app` и включи тумблер
+3. Последующие `build-app.sh` переиспользуют тот же permission
+
+Если сертификата нет - скрипт упадёт на ad-hoc подпись (permission будет сбрасываться на каждой пересборке).
+
+Удаление сертификата:
+```bash
+security delete-identity -c "ListTestSwiftUI Dev"
+```
 
 ## Запуск
 
