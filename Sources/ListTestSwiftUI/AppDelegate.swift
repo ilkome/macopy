@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerHotKey()
         ClipboardMonitor.shared.start()
         Paster.ensureAccessibility()
+        purgeDemoData()
     }
 
     private func setupStatusItem() {
@@ -106,6 +107,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.terminate(nil)
     }
 
+    private func purgeDemoData() {
+        let ctx = Storage.container.mainContext
+        let predicate = #Predicate<ClipboardItem> { $0.contentHash.starts(with: "demo-") }
+        let fetch = FetchDescriptor<ClipboardItem>(predicate: predicate)
+        guard let items = try? ctx.fetch(fetch), !items.isEmpty else { return }
+        for item in items { ctx.delete(item) }
+        try? ctx.save()
+    }
+
     func togglePanel() {
         guard let panel else { return }
         if panel.isVisible {
@@ -124,6 +134,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let y = screen.visibleFrame.midY - frame.height / 2
             panel.setFrameOrigin(NSPoint(x: x, y: y))
         }
+        if !Paster.didPaste {
+            NotificationCenter.default.post(name: .clipboardPanelReset, object: nil)
+        }
+        Paster.didPaste = false
         panel.makeKeyAndOrderFront(nil)
     }
 
