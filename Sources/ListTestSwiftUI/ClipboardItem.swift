@@ -23,6 +23,7 @@ final class ClipboardItem {
     var sourceAppIconPath: String?
     var sourceFilePath: String?
     var byteSize: Int
+    var isFavorite: Bool = false
 
     var kind: ClipKind { ClipKind(rawValue: kindRaw) ?? .text }
 

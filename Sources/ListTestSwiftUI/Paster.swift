@@ -1,9 +1,14 @@
 import AppKit
 import ApplicationServices
 
+extension Notification.Name {
+    static let clipboardPanelReset = Notification.Name("clipboardPanelReset")
+}
+
 @MainActor
 enum Paster {
     static var previousApp: NSRunningApplication?
+    static var didPaste: Bool = false
 
     @discardableResult
     static func paste(_ item: ClipboardItem) -> Bool {
@@ -25,6 +30,7 @@ enum Paster {
             pb.setString(text, forType: .string)
         }
 
+        didPaste = true
         AppDelegate.shared?.hidePanel()
 
         if let prev = previousApp {
