@@ -4,7 +4,7 @@ enum ContentTypeDetector {
     static func detect(_ raw: String) -> ClipKind {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if isURL(text) { return .url }
-        if isColor(text) { return .color }
+        if ColorParser.isColor(text) { return .color }
         if isCode(raw) { return .code }
         return .text
     }
@@ -17,21 +17,6 @@ enum ContentTypeDetector {
               url.host != nil || scheme == "file"
         else { return false }
         return true
-    }
-
-    private static let hexRegex = try! NSRegularExpression(pattern: #"^#?[0-9a-fA-F]+$"#)
-    private static let funcColorRegex = try! NSRegularExpression(
-        pattern: #"^(rgba?|hsla?)\s*\([^\)]+\)$"#,
-        options: [.caseInsensitive]
-    )
-
-    private static func isColor(_ s: String) -> Bool {
-        let range = NSRange(s.startIndex..., in: s)
-        if hexRegex.firstMatch(in: s, range: range) != nil {
-            let clean = s.hasPrefix("#") ? String(s.dropFirst()) : s
-            return [3, 4, 6, 8].contains(clean.count)
-        }
-        return funcColorRegex.firstMatch(in: s, range: range) != nil
     }
 
     private static let codeKeywords: [String] = [
