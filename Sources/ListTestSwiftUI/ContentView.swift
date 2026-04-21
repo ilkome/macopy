@@ -363,7 +363,7 @@ struct ContentView: View {
     private func listView(proxy: ScrollViewProxy) -> some View {
         let groups = sections
         return ScrollView {
-            LazyVStack(spacing: 0, pinnedViews: []) {
+            VStack(spacing: 0) {
                 if groups.isEmpty {
                     emptyState
                 } else {
@@ -371,7 +371,7 @@ struct ContentView: View {
                         sectionHeader(section.title)
                             .id("section-\(section.id)")
                         ForEach(section.rows) { row in
-                            ItemRow(row: row, selected: selection == row.id)
+                            ItemRow(row: row, selection: selection)
                                 .id(row.id)
                                 .contentShape(Rectangle())
                                 .onTapGesture(count: 2) { paste(row.item) }
@@ -457,10 +457,11 @@ struct ContentView: View {
 
 struct ItemRow: View {
     let row: ContentView.ListRow
-    let selected: Bool
+    let selection: UUID?
 
     private var item: ClipboardItem { row.item }
     private var match: ContentView.SearchMatch? { row.match }
+    private var selected: Bool { selection == row.id }
 
     private var renderedText: AttributedString {
         if let snippet = match?.snippet {
@@ -486,11 +487,9 @@ struct ItemRow: View {
         .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: Layout.rowHeight)
-        .background(
-            selected
-                ? Color.accentColor.opacity(0.3)
-                : Color.clear
-        )
+        .background {
+            Color.accentColor.opacity(selected ? 0.3 : 0)
+        }
     }
 
     private var sourceIcon: some View {
