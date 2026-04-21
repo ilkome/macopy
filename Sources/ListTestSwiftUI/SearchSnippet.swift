@@ -6,19 +6,22 @@ enum SearchSnippet {
         ranges: [CountableClosedRange<Int>],
         radius: Int
     ) -> AttributedString {
-        let chars = Array(text)
-        guard !chars.isEmpty, let first = ranges.first else {
+        let total = text.count
+        guard total > 0, let first = ranges.first else {
             return AttributedString(text.replacingOccurrences(of: "\n", with: " "))
         }
 
         let anchor = first.lowerBound
         let start = max(0, anchor - radius)
-        let end = min(chars.count, first.upperBound + 1 + radius)
-        let body = String(chars[start..<end]).replacingOccurrences(of: "\n", with: " ")
+        let end = min(total, first.upperBound + 1 + radius)
+
+        let startIdx = text.index(text.startIndex, offsetBy: start)
+        let endIdx = text.index(text.startIndex, offsetBy: end)
+        let body = text[startIdx..<endIdx].replacingOccurrences(of: "\n", with: " ")
 
         var attr = AttributedString(body)
         let leadingEllipsis = start > 0
-        let trailingEllipsis = end < chars.count
+        let trailingEllipsis = end < total
         if leadingEllipsis { attr = AttributedString("…") + attr }
         if trailingEllipsis { attr.append(AttributedString("…")) }
 

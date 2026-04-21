@@ -60,7 +60,15 @@ private let relativeFormatter: RelativeDateTimeFormatter = {
 
 struct ContentView: View {
     @Environment(\.modelContext) private var ctx
-    @Query(sort: \ClipboardItem.updatedAt, order: .reverse) private var allItems: [ClipboardItem]
+    @Query(ContentView.recentDescriptor) private var allItems: [ClipboardItem]
+
+    private static var recentDescriptor: FetchDescriptor<ClipboardItem> {
+        var d = FetchDescriptor<ClipboardItem>(
+            sortBy: [SortDescriptor(\ClipboardItem.updatedAt, order: .reverse)]
+        )
+        d.fetchLimit = 2000
+        return d
+    }
 
     @State private var query: String = ""
     @State private var selection: UUID?
@@ -71,6 +79,8 @@ struct ContentView: View {
     @State private var rows: [RowModel] = []
     @State private var sections: [Section] = []
     @State private var rowsById: [UUID: RowModel] = [:]
+    @State private var minuteTick = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
+    @State private var searchTask: Task<Void, Never>?
 
     private var selectedItem: ClipboardItem? {
         selection.flatMap { rowsById[$0]?.item }
@@ -99,6 +109,15 @@ struct ContentView: View {
     struct SearchMatch: Equatable {
         let score: Double
         let snippet: AttributedString
+    }
+
+    private struct AllItemsSignature: Equatable {
+        let count: Int
+        let topUpdatedAt: Date?
+    }
+
+    private var allItemsSignature: AllItemsSignature {
+        AllItemsSignature(count: allItems.count, topUpdatedAt: allItems.first?.updatedAt)
     }
 
     var body: some View {
@@ -138,20 +157,20 @@ struct ContentView: View {
                 }
             }
             .onChange(of: query) { _, _ in
-                let list = recompute(forceFirst: true)
-                if !list.isEmpty, let firstSection = sections.first {
-                    proxy.scrollTo("section-\(firstSection.id)", anchor: .top)
+                searchTask?.cancel()
+                searchTask = Task {
+                    try? await Task.sleep(for: .milliseconds(60))
+                    guard !Task.isCancelled else { return }
+                    let list = recompute(forceFirst: true)
+                    if !list.isEmpty, let firstSection = sections.first {
+                        proxy.scrollTo("section-\(firstSection.id)", anchor: .top)
+                    }
                 }
             }
-            .onChange(of: allItems.count) { _, _ in
+            .onChange(of: allItemsSignature) { _, _ in
                 recompute()
             }
-            .onChange(of: allItems.first?.updatedAt) { _, _ in
-                recompute()
-            }
-            .onReceive(
-                Timer.publish(every: 60, on: .main, in: .common).autoconnect()
-            ) { _ in
+            .onReceive(minuteTick) { _ in
                 sections = buildSections(rows, query: query)
             }
         }
@@ -174,7 +193,9 @@ struct ContentView: View {
 
         func reuseOrCreate(item: ClipboardItem, match: SearchMatch?) -> RowModel {
             if let existing = previousById[item.id] {
-                existing.match = match
+                if existing.match != match {
+                    existing.match = match
+                }
                 return existing
             }
             return RowModel(item: item, match: match)
@@ -215,7 +236,9 @@ struct ContentView: View {
                 }
             }
             scored.sort { lhs, rhs in
-                lhs.1 != rhs.1 ? lhs.1 < rhs.1 : lhs.0.updatedAt > rhs.0.updatedAt
+                if lhs.1 != rhs.1 { return lhs.1 < rhs.1 }
+                if lhs.0.updatedAt != rhs.0.updatedAt { return lhs.0.updatedAt > rhs.0.updatedAt }
+                return lhs.0.id.uuidString < rhs.0.id.uuidString
             }
             built = scored.map { item, score, snippet in
                 reuseOrCreate(item: item, match: SearchMatch(score: score, snippet: snippet))
@@ -239,14 +262,17 @@ struct ContentView: View {
     }
 
     private func applySelection(_ newId: UUID?) {
-        if selection != newId {
-            selection = newId
+        guard selection != newId else { return }
+        if let oldId = selection,
+           let oldModel = rowsById[oldId],
+           oldModel.isSelected {
+            oldModel.isSelected = false
         }
-        for row in rows {
-            let shouldBeSelected = row.id == newId
-            if row.isSelected != shouldBeSelected {
-                row.isSelected = shouldBeSelected
-            }
+        selection = newId
+        if let newId,
+           let newModel = rowsById[newId],
+           !newModel.isSelected {
+            newModel.isSelected = true
         }
     }
 
