@@ -1,4 +1,5 @@
 import AppKit
+import Fuse
 import SwiftData
 import SwiftUI
 
@@ -67,61 +68,25 @@ struct ContentView: View {
     @AppStorage("listWidth") private var listWidth: Double = Double(Layout.defaultListWidth)
     @FocusState private var searchFocused: Bool
 
-    private var items: [ClipboardItem] {
-        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return allItems.filter { item in
-            guard tab.matches(item) else { return false }
-            guard !q.isEmpty else { return true }
-            if item.preview.lowercased().contains(q) { return true }
-            if let t = item.text?.lowercased(), t.contains(q) { return true }
-            if let o = item.ocrText?.lowercased(), o.contains(q) { return true }
-            if let n = item.sourceAppName?.lowercased(), n.contains(q) { return true }
-            return false
-        }
-    }
+    @State private var filteredItems: [ClipboardItem] = []
+    @State private var sections: [Section] = []
+    @State private var itemsById: [UUID: ClipboardItem] = [:]
+    @State private var matches: [UUID: SearchMatch] = [:]
 
     private var selectedItem: ClipboardItem? {
-        guard let sel = selection else { return nil }
-        return allItems.first { $0.id == sel }
+        selection.flatMap { itemsById[$0] }
     }
 
-    private struct Section: Identifiable {
+    struct Section: Identifiable {
         let id: Int
         let title: String
         let items: [ClipboardItem]
     }
 
-    private var sections: [Section] {
-        let list = items
-        guard !list.isEmpty else { return [] }
-        let now = Date()
-        let cal = Calendar.current
-        let yesterday = cal.date(byAdding: .day, value: -1, to: now)
-
-        func bucket(_ date: Date) -> Int {
-            if now.timeIntervalSince(date) <= 3600 { return 0 }
-            if cal.isDate(date, inSameDayAs: now) { return 1 }
-            if let y = yesterday, cal.isDate(date, inSameDayAs: y) { return 2 }
-            if cal.isDate(date, equalTo: now, toGranularity: .weekOfYear) { return 3 }
-            return 4
-        }
-
-        let titles = [
-            "В течение часа",
-            "Сегодня",
-            "Вчера",
-            "На этой неделе",
-            "Ранее"
-        ]
-
-        var groups: [Int: [ClipboardItem]] = [:]
-        for item in list {
-            groups[bucket(item.updatedAt), default: []].append(item)
-        }
-        return (0..<titles.count).compactMap { i in
-            guard let arr = groups[i], !arr.isEmpty else { return nil }
-            return Section(id: i, title: titles[i], items: arr)
-        }
+    struct SearchMatch {
+        let score: Double
+        let fieldText: String
+        let ranges: [CountableClosedRange<Int>]
     }
 
     var body: some View {
@@ -154,22 +119,128 @@ struct ContentView: View {
             .onReceive(NotificationCenter.default.publisher(for: .clipboardPanelReset)) { _ in
                 resetToTop(proxy: proxy)
             }
-            .onChange(of: tab) { _, _ in selectFirst(proxy: proxy) }
+            .onChange(of: tab) { _, _ in
+                recompute(forceFirst: true)
+                if let firstSection = sections.first {
+                    proxy.scrollTo("section-\(firstSection.id)", anchor: .top)
+                }
+            }
+            .onChange(of: query) { _, _ in
+                let list = recompute(forceFirst: true)
+                if !list.isEmpty, let firstSection = sections.first {
+                    proxy.scrollTo("section-\(firstSection.id)", anchor: .top)
+                }
+            }
+            .onChange(of: allItems.count) { _, _ in
+                recompute()
+            }
+            .onChange(of: allItems.first?.updatedAt) { _, _ in
+                recompute()
+            }
+            .onReceive(
+                Timer.publish(every: 60, on: .main, in: .common).autoconnect()
+            ) { _ in
+                sections = buildSections(filteredItems)
+            }
         }
         .frame(width: Layout.panelWidth, height: Layout.panelHeight)
-        .background(VisualEffectBackground())
+        .background {
+            VisualEffectBackground()
+                .overlay(Color.black.opacity(0.35))
+        }
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .onAppear {
+            recompute()
             searchFocused = true
-            pickInitial()
         }
-        .onChange(of: query) { _, _ in pickInitial() }
     }
 
-    private func selectFirst(proxy: ScrollViewProxy) {
-        selection = items.first?.id
-        if let first = sections.first {
-            proxy.scrollTo("section-\(first.id)", anchor: .top)
+    @discardableResult
+    private func recompute(forceFirst: Bool = false) -> [ClipboardItem] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let list: [ClipboardItem]
+        var nextMatches: [UUID: SearchMatch] = [:]
+        if q.isEmpty {
+            list = allItems.filter { tab.matches($0) }
+        } else {
+            let fuse = Fuse(location: 0, distance: 1_000_000, threshold: 0.4)
+            guard let pattern = fuse.createPattern(from: q) else {
+                filteredItems = []
+                sections = []
+                itemsById = [:]
+                matches = [:]
+                return []
+            }
+            var scored: [(ClipboardItem, SearchMatch)] = []
+            for item in allItems where tab.matches(item) {
+                let fields: [String?] = [item.text, item.ocrText, item.preview, item.sourceAppName]
+                var best: SearchMatch?
+                for field in fields {
+                    guard let field, !field.isEmpty else { continue }
+                    guard let r = fuse.search(pattern, in: field) else { continue }
+                    if best == nil || r.score < best!.score {
+                        best = SearchMatch(score: r.score, fieldText: field, ranges: r.ranges)
+                    }
+                }
+                if let m = best {
+                    scored.append((item, m))
+                }
+            }
+            scored.sort { $0.1.score < $1.1.score }
+            list = scored.map { $0.0 }
+            for (item, match) in scored {
+                nextMatches[item.id] = match
+            }
+        }
+        let newSections = buildSections(list, query: q)
+        let newById = Dictionary(uniqueKeysWithValues: list.map { ($0.id, $0) })
+        filteredItems = list
+        sections = newSections
+        itemsById = newById
+        matches = nextMatches
+        if forceFirst {
+            selection = list.first?.id
+        } else if let sel = selection, newById[sel] != nil {
+            // keep
+        } else {
+            selection = list.first?.id
+        }
+        return list
+    }
+
+    private func buildSections(_ list: [ClipboardItem], query: String? = nil) -> [Section] {
+        guard !list.isEmpty else { return [] }
+        let trimmed = (query ?? self.query).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            return [Section(id: 0, title: "Результаты", items: list)]
+        }
+        let now = Date()
+        let cal = Calendar.current
+        let yesterday = cal.date(byAdding: .day, value: -1, to: now)
+
+        func bucket(_ date: Date) -> Int {
+            if now.timeIntervalSince(date) <= 3600 { return 0 }
+            if cal.isDate(date, inSameDayAs: now) { return 1 }
+            if let y = yesterday, cal.isDate(date, inSameDayAs: y) { return 2 }
+            if cal.isDate(date, equalTo: now, toGranularity: .weekOfYear) { return 3 }
+            return 4
+        }
+
+        let titles = [
+            "В течение часа",
+            "Сегодня",
+            "Вчера",
+            "На этой неделе",
+            "Ранее"
+        ]
+
+        var groups: [Int: [ClipboardItem]] = [:]
+        for item in list {
+            groups[bucket(item.updatedAt), default: []].append(item)
+        }
+        return (0..<titles.count).compactMap { i in
+            guard let arr = groups[i], !arr.isEmpty else { return nil }
+            return Section(id: i, title: titles[i], items: arr)
         }
     }
 
@@ -177,7 +248,7 @@ struct ContentView: View {
         query = ""
         tab = .all
         searchFocused = true
-        selection = items.first?.id
+        recompute(forceFirst: true)
         if let first = sections.first {
             proxy.scrollTo("section-\(first.id)", anchor: .top)
         }
@@ -219,11 +290,10 @@ struct ContentView: View {
     }
 
     private func searchField(proxy: ScrollViewProxy) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
+        HStack(spacing: 10) {
             TextField("Поиск", text: $query)
                 .textFieldStyle(.plain)
+                .font(.system(size: 16))
                 .focused($searchFocused)
                 .onKeyPress(.escape) {
                     AppDelegate.shared?.hidePanel()
@@ -238,10 +308,12 @@ struct ContentView: View {
                     return .handled
                 }
                 .onKeyPress(.leftArrow) {
+                    guard query.isEmpty else { return .ignored }
                     cycleTab(-1)
                     return .handled
                 }
                 .onKeyPress(.rightArrow) {
+                    guard query.isEmpty else { return .ignored }
                     cycleTab(1)
                     return .handled
                 }
@@ -271,7 +343,7 @@ struct ContentView: View {
                 .background(Color.secondary.opacity(0.15))
                 .clipShape(RoundedRectangle(cornerRadius: 4))
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 18)
     }
 
     private func listView(proxy: ScrollViewProxy) -> some View {
@@ -285,14 +357,16 @@ struct ContentView: View {
                         sectionHeader(section.title)
                             .id("section-\(section.id)")
                         ForEach(section.items) { item in
-                            ItemRow(item: item, selected: selection == item.id)
+                            ItemRow(
+                                item: item,
+                                selected: selection == item.id,
+                                match: matches[item.id]
+                            )
                                 .id(item.id)
                                 .contentShape(Rectangle())
-                                .gesture(
-                                    TapGesture(count: 2).onEnded { paste(item) }
-                                )
+                                .onTapGesture(count: 2) { paste(item) }
                                 .simultaneousGesture(
-                                    TapGesture(count: 1).onEnded { selection = item.id }
+                                    TapGesture().onEnded { selection = item.id }
                                 )
                         }
                     }
@@ -325,15 +399,8 @@ struct ContentView: View {
         .padding(40)
     }
 
-    private func pickInitial() {
-        let list = items
-        if selection == nil || !list.contains(where: { $0.id == selection }) {
-            selection = list.first?.id
-        }
-    }
-
     private func move(_ delta: Int, proxy: ScrollViewProxy) {
-        let list = items
+        let list = filteredItems
         guard !list.isEmpty else { return }
         let idx = list.firstIndex(where: { $0.id == selection }) ?? 0
         let new = max(0, min(list.count - 1, idx + delta))
@@ -348,23 +415,22 @@ struct ContentView: View {
     }
 
     private func paste(_ override: ClipboardItem? = nil) {
-        let list = items
-        guard let target = override ?? list.first(where: { $0.id == selection }) else { return }
-        let ok = Paster.paste(target)
-        if !ok {
+        guard let target = override ?? selection.flatMap({ itemsById[$0] }) else { return }
+        if !Paster.shared.paste(target) {
             removeItem(target)
         }
     }
 
     private func deleteSelected() {
-        guard let sel = items.first(where: { $0.id == selection }) else { return }
-        removeItem(sel)
+        guard let sel = selection, let item = itemsById[sel] else { return }
+        removeItem(item)
     }
 
     private func toggleFavorite() {
-        guard let sel = items.first(where: { $0.id == selection }) else { return }
-        sel.isFavorite.toggle()
+        guard let sel = selection, let item = itemsById[sel] else { return }
+        item.isFavorite.toggle()
         try? ctx.save()
+        recompute()
     }
 
     private func removeItem(_ item: ClipboardItem) {
@@ -375,12 +441,19 @@ struct ContentView: View {
         }
         ctx.delete(item)
         try? ctx.save()
+        recompute()
     }
 }
 
 struct ItemRow: View {
     let item: ClipboardItem
     let selected: Bool
+    let match: ContentView.SearchMatch?
+
+    private var matchSnippet: AttributedString? {
+        guard let match, !match.ranges.isEmpty else { return nil }
+        return SearchSnippet.build(text: match.fieldText, ranges: match.ranges, radius: 40)
+    }
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
@@ -429,19 +502,38 @@ struct ItemRow: View {
         case .color:
             colorContent
         case .code:
-            Text(item.preview.replacingOccurrences(of: "\n", with: " "))
-                .font(.system(.body, design: .monospaced))
-                .lineLimit(1)
-                .truncationMode(.tail)
+            if let snippet = matchSnippet {
+                Text(snippet)
+                    .font(.system(.body, design: .monospaced))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            } else {
+                Text(item.preview.replacingOccurrences(of: "\n", with: " "))
+                    .font(.system(.body, design: .monospaced))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
         case .url:
-            Text(item.preview)
-                .lineLimit(1)
-                .foregroundStyle(.blue)
-                .truncationMode(.middle)
+            if let snippet = matchSnippet {
+                Text(snippet)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            } else {
+                Text(item.preview)
+                    .lineLimit(1)
+                    .foregroundStyle(.blue)
+                    .truncationMode(.middle)
+            }
         default:
-            Text(item.preview.replacingOccurrences(of: "\n", with: " "))
-                .lineLimit(1)
-                .truncationMode(.tail)
+            if let snippet = matchSnippet {
+                Text(snippet)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            } else {
+                Text(item.preview.replacingOccurrences(of: "\n", with: " "))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
         }
     }
 
@@ -464,7 +556,7 @@ struct ItemRow: View {
     private var colorContent: some View {
         HStack(spacing: 10) {
             RoundedRectangle(cornerRadius: 4)
-                .fill(colorFromString(item.text ?? "") ?? .gray)
+                .fill(ColorParser.parse(item.text ?? "")?.color ?? .gray)
                 .frame(width: 22, height: 22)
                 .overlay(
                     RoundedRectangle(cornerRadius: 4)
@@ -506,30 +598,6 @@ struct ItemRow: View {
         }
     }
 
-}
-
-private func colorFromString(_ input: String) -> Color? {
-    let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
-    var str = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
-    if [3, 4].contains(str.count) {
-        str = str.map { "\($0)\($0)" }.joined()
-    }
-    guard let value = UInt64(str, radix: 16) else { return nil }
-    let r, g, b, a: Double
-    if str.count == 6 {
-        r = Double((value >> 16) & 0xff) / 255
-        g = Double((value >> 8) & 0xff) / 255
-        b = Double(value & 0xff) / 255
-        a = 1
-    } else if str.count == 8 {
-        r = Double((value >> 24) & 0xff) / 255
-        g = Double((value >> 16) & 0xff) / 255
-        b = Double((value >> 8) & 0xff) / 255
-        a = Double(value & 0xff) / 255
-    } else {
-        return nil
-    }
-    return Color(red: r, green: g, blue: b, opacity: a)
 }
 
 struct ResizableDivider: NSViewRepresentable {
@@ -738,10 +806,10 @@ struct PreviewPane: View {
 
     private func colorBody(for item: ClipboardItem) -> some View {
         let raw = item.text ?? item.preview
-        let color = colorFromString(raw) ?? .gray
+        let parsed = ColorParser.parse(raw)
         return VStack(alignment: .leading, spacing: 12) {
             RoundedRectangle(cornerRadius: 8)
-                .fill(color)
+                .fill(parsed?.color ?? .gray)
                 .frame(height: 100)
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
@@ -750,7 +818,7 @@ struct PreviewPane: View {
             Text(raw)
                 .font(.system(.title3, design: .monospaced))
                 .textSelection(.enabled)
-            if let rgb = rgbString(from: raw) {
+            if let rgb = parsed?.rgbString {
                 Text(rgb)
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
@@ -777,28 +845,5 @@ struct PreviewPane: View {
 
     private func byteString(_ bytes: Int) -> String {
         ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
-    }
-
-    private func rgbString(from raw: String) -> String? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        var str = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
-        if [3, 4].contains(str.count) {
-            str = str.map { "\($0)\($0)" }.joined()
-        }
-        guard let value = UInt64(str, radix: 16) else { return nil }
-        if str.count == 6 {
-            let r = (value >> 16) & 0xff
-            let g = (value >> 8) & 0xff
-            let b = value & 0xff
-            return "rgb(\(r), \(g), \(b))"
-        }
-        if str.count == 8 {
-            let r = (value >> 24) & 0xff
-            let g = (value >> 16) & 0xff
-            let b = (value >> 8) & 0xff
-            let a = Double(value & 0xff) / 255
-            return String(format: "rgba(%d, %d, %d, %.2f)", r, g, b, a)
-        }
-        return nil
     }
 }

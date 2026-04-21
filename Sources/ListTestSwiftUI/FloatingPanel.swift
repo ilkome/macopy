@@ -24,6 +24,7 @@ final class FloatingPanel: NSPanel {
         isOpaque = false
         backgroundColor = .clear
         hasShadow = true
+        appearance = NSAppearance(named: .darkAqua)
 
         let root = ContentView().modelContainer(Storage.container)
         contentView = NSHostingView(rootView: root)
@@ -39,6 +40,7 @@ struct VisualEffectBackground: NSViewRepresentable {
         view.material = .hudWindow
         view.state = .active
         view.blendingMode = .behindWindow
+        view.appearance = NSAppearance(named: .darkAqua)
         return view
     }
 

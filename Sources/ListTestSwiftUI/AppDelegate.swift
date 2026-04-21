@@ -1,6 +1,5 @@
 import AppKit
 import Carbon.HIToolbox
-import SwiftData
 import SwiftUI
 
 @main
@@ -27,7 +26,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerHotKey()
         ClipboardMonitor.shared.start()
         Paster.ensureAccessibility()
-        purgeDemoData()
     }
 
     private func setupStatusItem() {
@@ -67,16 +65,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
-        let clear = NSMenuItem(
-            title: "Очистить историю",
-            action: #selector(clearHistory),
-            keyEquivalent: ""
-        )
-        clear.target = self
-        menu.addItem(clear)
-
-        menu.addItem(.separator())
-
         let quit = NSMenuItem(title: "Выход", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
@@ -90,30 +78,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppSettings.shared.ocrEnabled.toggle()
     }
 
-    @objc private func clearHistory() {
-        let ctx = Storage.container.mainContext
-        let items = (try? ctx.fetch(FetchDescriptor<ClipboardItem>())) ?? []
-        let fm = FileManager.default
-        for item in items {
-            if let path = item.imagePath {
-                try? fm.removeItem(at: Storage.imageURL(for: path))
-            }
-            ctx.delete(item)
-        }
-        try? ctx.save()
-    }
-
     @objc private func quit() {
         NSApp.terminate(nil)
-    }
-
-    private func purgeDemoData() {
-        let ctx = Storage.container.mainContext
-        let predicate = #Predicate<ClipboardItem> { $0.contentHash.starts(with: "demo-") }
-        let fetch = FetchDescriptor<ClipboardItem>(predicate: predicate)
-        guard let items = try? ctx.fetch(fetch), !items.isEmpty else { return }
-        for item in items { ctx.delete(item) }
-        try? ctx.save()
     }
 
     func togglePanel() {
@@ -127,17 +93,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func showPanel() {
         guard let panel else { return }
-        Paster.previousApp = NSWorkspace.shared.frontmostApplication
+        Paster.shared.previousApp = NSWorkspace.shared.frontmostApplication
         if let screen = NSScreen.main {
             let frame = panel.frame
             let x = screen.visibleFrame.midX - frame.width / 2
             let y = screen.visibleFrame.midY - frame.height / 2
             panel.setFrameOrigin(NSPoint(x: x, y: y))
         }
-        if !Paster.didPaste {
+        if !Paster.shared.didPaste {
             NotificationCenter.default.post(name: .clipboardPanelReset, object: nil)
         }
-        Paster.didPaste = false
+        Paster.shared.didPaste = false
         panel.makeKeyAndOrderFront(nil)
     }
 

@@ -6,12 +6,19 @@ extension Notification.Name {
 }
 
 @MainActor
-enum Paster {
-    static var previousApp: NSRunningApplication?
-    static var didPaste: Bool = false
+final class Paster {
+    static let shared = Paster()
+
+    var previousApp: NSRunningApplication?
+    var didPaste = false
+
+    private var activationObserver: NSObjectProtocol?
+    private var activationTimer: DispatchWorkItem?
+
+    private init() {}
 
     @discardableResult
-    static func paste(_ item: ClipboardItem) -> Bool {
+    func paste(_ item: ClipboardItem) -> Bool {
         let pb = NSPasteboard.general
 
         switch item.kind {
@@ -33,22 +40,65 @@ enum Paster {
         didPaste = true
         AppDelegate.shared?.hidePanel()
 
-        if let prev = previousApp {
-            prev.activate(options: [])
-        }
-
-        if !isTrusted() {
-            showAccessibilityAlert()
+        guard Self.isTrusted() else {
+            Self.showAccessibilityAlert()
             return true
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        if let prev = previousApp, prev.processIdentifier != ownPID, !prev.isActive {
+            prev.activate(options: [])
+            awaitActivation(of: prev) { [weak self] in
+                self?.simulateCmdV()
+            }
+        } else {
             simulateCmdV()
         }
         return true
     }
 
-    private static func simulateCmdV() {
+    private func awaitActivation(
+        of app: NSRunningApplication,
+        timeout: TimeInterval = 0.3,
+        action: @escaping @MainActor () -> Void
+    ) {
+        cancelActivationWait()
+        let center = NSWorkspace.shared.notificationCenter
+        let targetPID = app.processIdentifier
+
+        let fire: @MainActor () -> Void = { [weak self] in
+            guard let self else { return }
+            self.cancelActivationWait()
+            action()
+        }
+
+        activationObserver = center.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { notification in
+            guard let running = notification
+                .userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  running.processIdentifier == targetPID
+            else { return }
+            MainActor.assumeIsolated { fire() }
+        }
+
+        let work = DispatchWorkItem { MainActor.assumeIsolated { fire() } }
+        activationTimer = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: work)
+    }
+
+    private func cancelActivationWait() {
+        if let observer = activationObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            activationObserver = nil
+        }
+        activationTimer?.cancel()
+        activationTimer = nil
+    }
+
+    private func simulateCmdV() {
         let source = CGEventSource(stateID: .hidSystemState)
         let vKeyCode: CGKeyCode = 0x09
 

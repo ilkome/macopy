@@ -1,5 +1,6 @@
 import AppKit
 import CryptoKit
+import ImageIO
 import SwiftData
 
 @MainActor
@@ -37,8 +38,13 @@ final class ClipboardMonitor {
             return
         }
 
-        if let image = readImage(from: pb) {
-            handleImage(image, fileURL: firstFileURL(from: pb), frontApp: frontApp)
+        if let (data, ext) = readImageData(from: pb) {
+            handleImage(
+                data: data,
+                ext: ext,
+                fileURL: firstFileURL(from: pb),
+                frontApp: frontApp
+            )
             return
         }
 
@@ -54,13 +60,16 @@ final class ClipboardMonitor {
         }
     }
 
-    private func readImage(from pb: NSPasteboard) -> NSImage? {
-        if let image = NSImage(pasteboard: pb), image.isValid { return image }
+    private func readImageData(from pb: NSPasteboard) -> (Data, String)? {
+        if let data = pb.data(forType: .png) { return (data, "png") }
+        if let data = pb.data(forType: .init("public.jpeg")) { return (data, "jpg") }
+        if let data = pb.data(forType: .tiff) { return (data, "tiff") }
         if let urls = pb.readObjects(forClasses: [NSURL.self], options: nil) as? [URL],
-           let first = urls.first,
-           imageExts.contains(first.pathExtension.lowercased()),
-           let img = NSImage(contentsOf: first) {
-            return img
+           let first = urls.first {
+            let ext = first.pathExtension.lowercased()
+            if imageExts.contains(ext), let data = try? Data(contentsOf: first) {
+                return (data, ext)
+            }
         }
         return nil
     }
@@ -99,9 +108,13 @@ final class ClipboardMonitor {
         try? ctx.save()
     }
 
-    private func handleImage(_ image: NSImage, fileURL: URL?, frontApp: NSRunningApplication?) {
-        guard let data = Self.pngData(from: image) else { return }
-        let hash = Self.sha256(data)
+    private func handleImage(
+        data: Data,
+        ext: String,
+        fileURL: URL?,
+        frontApp: NSRunningApplication?
+    ) {
+        let hash = Self.hashImage(data)
         let ctx = Storage.container.mainContext
 
         if let existing = Self.findItem(hash: hash, ctx: ctx) {
@@ -110,21 +123,21 @@ final class ClipboardMonitor {
             return
         }
 
-        let filename = "\(UUID().uuidString).png"
+        let filename = "\(UUID().uuidString).\(ext)"
         let dest = Storage.imageURL(for: filename)
         do { try data.write(to: dest) } catch { return }
 
+        let (width, height) = Self.dimensions(from: data)
         let iconPath = frontApp.flatMap { IconCache.savedIcon(for: $0) }
-        let size = image.size
-        let preview = fileURL?.lastPathComponent ?? "Image \(Int(size.width))×\(Int(size.height))"
+        let preview = fileURL?.lastPathComponent ?? "Image \(width)×\(height)"
 
         let item = ClipboardItem(
             contentHash: hash,
             kind: .image,
             preview: preview,
             imagePath: filename,
-            imageWidth: Int(size.width),
-            imageHeight: Int(size.height),
+            imageWidth: width,
+            imageHeight: height,
             sourceAppBundleId: frontApp?.bundleIdentifier,
             sourceAppName: frontApp?.localizedName,
             sourceAppIconPath: iconPath,
@@ -142,11 +155,21 @@ final class ClipboardMonitor {
         }
     }
 
-    private static func pngData(from image: NSImage) -> Data? {
-        guard let tiff = image.tiffRepresentation,
-              let rep = NSBitmapImageRep(data: tiff)
-        else { return nil }
-        return rep.representation(using: .png, properties: [:])
+    private static func dimensions(from data: Data) -> (Int, Int) {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+              let w = props[kCGImagePropertyPixelWidth] as? Int,
+              let h = props[kCGImagePropertyPixelHeight] as? Int
+        else { return (0, 0) }
+        return (w, h)
+    }
+
+    private static func hashImage(_ data: Data) -> String {
+        var hasher = SHA256()
+        hasher.update(data: data.prefix(64 * 1024))
+        var size = UInt64(data.count)
+        withUnsafeBytes(of: &size) { hasher.update(bufferPointer: $0) }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     private static func sha256(_ data: Data) -> String {
