@@ -68,28 +68,32 @@ struct ContentView: View {
     @AppStorage("listWidth") private var listWidth: Double = Double(Layout.defaultListWidth)
     @FocusState private var searchFocused: Bool
 
-    @State private var rows: [ListRow] = []
+    @State private var rows: [RowModel] = []
     @State private var sections: [Section] = []
-    @State private var rowsById: [UUID: ListRow] = [:]
+    @State private var rowsById: [UUID: RowModel] = [:]
 
     private var selectedItem: ClipboardItem? {
         selection.flatMap { rowsById[$0]?.item }
     }
 
-    struct ListRow: Identifiable, Equatable {
+    @Observable
+    final class RowModel: Identifiable {
         let item: ClipboardItem
-        let match: SearchMatch?
+        var match: SearchMatch?
+        var isSelected: Bool = false
+
         var id: UUID { item.id }
 
-        static func == (lhs: ListRow, rhs: ListRow) -> Bool {
-            lhs.item.id == rhs.item.id && lhs.match == rhs.match
+        init(item: ClipboardItem, match: SearchMatch? = nil) {
+            self.item = item
+            self.match = match
         }
     }
 
     struct Section: Identifiable {
         let id: Int
         let title: String
-        let rows: [ListRow]
+        let rows: [RowModel]
     }
 
     struct SearchMatch: Equatable {
@@ -164,13 +168,23 @@ struct ContentView: View {
     }
 
     @discardableResult
-    private func recompute(forceFirst: Bool = false) -> [ListRow] {
+    private func recompute(forceFirst: Bool = false) -> [RowModel] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let built: [ListRow]
+        let previousById = rowsById
+
+        func reuseOrCreate(item: ClipboardItem, match: SearchMatch?) -> RowModel {
+            if let existing = previousById[item.id] {
+                existing.match = match
+                return existing
+            }
+            return RowModel(item: item, match: match)
+        }
+
+        let built: [RowModel]
         if q.isEmpty {
             built = allItems
                 .filter { tab.matches($0) }
-                .map { ListRow(item: $0, match: nil) }
+                .map { reuseOrCreate(item: $0, match: nil) }
         } else {
             let fuse = Fuse(location: 0, distance: 1_000_000, threshold: 0.4)
             guard let pattern = fuse.createPattern(from: q) else {
@@ -204,7 +218,7 @@ struct ContentView: View {
                 lhs.1 != rhs.1 ? lhs.1 < rhs.1 : lhs.0.updatedAt > rhs.0.updatedAt
             }
             built = scored.map { item, score, snippet in
-                ListRow(item: item, match: SearchMatch(score: score, snippet: snippet))
+                reuseOrCreate(item: item, match: SearchMatch(score: score, snippet: snippet))
             }
         }
         let newSections = buildSections(built, query: q)
@@ -212,17 +226,31 @@ struct ContentView: View {
         rows = built
         sections = newSections
         rowsById = newById
+        let newSelection: UUID?
         if forceFirst {
-            selection = built.first?.id
+            newSelection = built.first?.id
         } else if let sel = selection, newById[sel] != nil {
-            // keep
+            newSelection = sel
         } else {
-            selection = built.first?.id
+            newSelection = built.first?.id
         }
+        applySelection(newSelection)
         return built
     }
 
-    private func buildSections(_ list: [ListRow], query: String) -> [Section] {
+    private func applySelection(_ newId: UUID?) {
+        if selection != newId {
+            selection = newId
+        }
+        for row in rows {
+            let shouldBeSelected = row.id == newId
+            if row.isSelected != shouldBeSelected {
+                row.isSelected = shouldBeSelected
+            }
+        }
+    }
+
+    private func buildSections(_ list: [RowModel], query: String) -> [Section] {
         guard !list.isEmpty else { return [] }
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
@@ -248,7 +276,7 @@ struct ContentView: View {
             "Ранее"
         ]
 
-        var groups: [Int: [ListRow]] = [:]
+        var groups: [Int: [RowModel]] = [:]
         for row in list {
             groups[bucket(row.item.updatedAt), default: []].append(row)
         }
@@ -363,7 +391,7 @@ struct ContentView: View {
     private func listView(proxy: ScrollViewProxy) -> some View {
         let groups = sections
         return ScrollView {
-            VStack(spacing: 0) {
+            LazyVStack(spacing: 0, pinnedViews: []) {
                 if groups.isEmpty {
                     emptyState
                 } else {
@@ -371,12 +399,12 @@ struct ContentView: View {
                         sectionHeader(section.title)
                             .id("section-\(section.id)")
                         ForEach(section.rows) { row in
-                            ItemRow(row: row, selection: selection)
+                            ItemRow(model: row)
                                 .id(row.id)
                                 .contentShape(Rectangle())
                                 .onTapGesture(count: 2) { paste(row.item) }
                                 .simultaneousGesture(
-                                    TapGesture().onEnded { selection = row.id }
+                                    TapGesture().onEnded { applySelection(row.id) }
                                 )
                         }
                     }
@@ -416,7 +444,7 @@ struct ContentView: View {
         let new = max(0, min(list.count - 1, idx + delta))
         let newId = list[new].id
         guard newId != selection else { return }
-        selection = newId
+        applySelection(newId)
         if let section = sections.first(where: { $0.rows.first?.id == newId }) {
             proxy.scrollTo("section-\(section.id)", anchor: .top)
         } else {
@@ -456,12 +484,11 @@ struct ContentView: View {
 }
 
 struct ItemRow: View {
-    let row: ContentView.ListRow
-    let selection: UUID?
+    @Bindable var model: ContentView.RowModel
 
-    private var item: ClipboardItem { row.item }
-    private var match: ContentView.SearchMatch? { row.match }
-    private var selected: Bool { selection == row.id }
+    private var item: ClipboardItem { model.item }
+    private var match: ContentView.SearchMatch? { model.match }
+    private var selected: Bool { model.isSelected }
 
     private var renderedText: AttributedString {
         if let snippet = match?.snippet {
