@@ -68,25 +68,33 @@ struct ContentView: View {
     @AppStorage("listWidth") private var listWidth: Double = Double(Layout.defaultListWidth)
     @FocusState private var searchFocused: Bool
 
-    @State private var filteredItems: [ClipboardItem] = []
+    @State private var rows: [ListRow] = []
     @State private var sections: [Section] = []
-    @State private var itemsById: [UUID: ClipboardItem] = [:]
-    @State private var matches: [UUID: SearchMatch] = [:]
+    @State private var rowsById: [UUID: ListRow] = [:]
 
     private var selectedItem: ClipboardItem? {
-        selection.flatMap { itemsById[$0] }
+        selection.flatMap { rowsById[$0]?.item }
+    }
+
+    struct ListRow: Identifiable, Equatable {
+        let item: ClipboardItem
+        let match: SearchMatch?
+        var id: UUID { item.id }
+
+        static func == (lhs: ListRow, rhs: ListRow) -> Bool {
+            lhs.item.id == rhs.item.id && lhs.match == rhs.match
+        }
     }
 
     struct Section: Identifiable {
         let id: Int
         let title: String
-        let items: [ClipboardItem]
+        let rows: [ListRow]
     }
 
-    struct SearchMatch {
+    struct SearchMatch: Equatable {
         let score: Double
-        let fieldText: String
-        let ranges: [CountableClosedRange<Int>]
+        let snippet: AttributedString
     }
 
     var body: some View {
@@ -140,7 +148,7 @@ struct ContentView: View {
             .onReceive(
                 Timer.publish(every: 60, on: .main, in: .common).autoconnect()
             ) { _ in
-                sections = buildSections(filteredItems)
+                sections = buildSections(rows, query: query)
             }
         }
         .frame(width: Layout.panelWidth, height: Layout.panelHeight)
@@ -156,63 +164,69 @@ struct ContentView: View {
     }
 
     @discardableResult
-    private func recompute(forceFirst: Bool = false) -> [ClipboardItem] {
+    private func recompute(forceFirst: Bool = false) -> [ListRow] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let list: [ClipboardItem]
-        var nextMatches: [UUID: SearchMatch] = [:]
+        let built: [ListRow]
         if q.isEmpty {
-            list = allItems.filter { tab.matches($0) }
+            built = allItems
+                .filter { tab.matches($0) }
+                .map { ListRow(item: $0, match: nil) }
         } else {
             let fuse = Fuse(location: 0, distance: 1_000_000, threshold: 0.4)
             guard let pattern = fuse.createPattern(from: q) else {
-                filteredItems = []
+                rows = []
                 sections = []
-                itemsById = [:]
-                matches = [:]
+                rowsById = [:]
+                selection = nil
                 return []
             }
-            var scored: [(ClipboardItem, SearchMatch)] = []
+            var scored: [(ClipboardItem, Double, AttributedString)] = []
             for item in allItems where tab.matches(item) {
                 let fields: [String?] = [item.text, item.ocrText, item.preview, item.sourceAppName]
-                var best: SearchMatch?
+                var bestScore: Double?
+                var bestField: String?
+                var bestRanges: [CountableClosedRange<Int>] = []
                 for field in fields {
                     guard let field, !field.isEmpty else { continue }
                     guard let r = fuse.search(pattern, in: field) else { continue }
-                    if best == nil || r.score < best!.score {
-                        best = SearchMatch(score: r.score, fieldText: field, ranges: r.ranges)
+                    if bestScore == nil || r.score < bestScore! {
+                        bestScore = r.score
+                        bestField = field
+                        bestRanges = r.ranges
                     }
                 }
-                if let m = best {
-                    scored.append((item, m))
+                if let s = bestScore, let field = bestField, !bestRanges.isEmpty {
+                    let snippet = SearchSnippet.build(text: field, ranges: bestRanges, radius: 40)
+                    scored.append((item, s, snippet))
                 }
             }
-            scored.sort { $0.1.score < $1.1.score }
-            list = scored.map { $0.0 }
-            for (item, match) in scored {
-                nextMatches[item.id] = match
+            scored.sort { lhs, rhs in
+                lhs.1 != rhs.1 ? lhs.1 < rhs.1 : lhs.0.updatedAt > rhs.0.updatedAt
+            }
+            built = scored.map { item, score, snippet in
+                ListRow(item: item, match: SearchMatch(score: score, snippet: snippet))
             }
         }
-        let newSections = buildSections(list, query: q)
-        let newById = Dictionary(uniqueKeysWithValues: list.map { ($0.id, $0) })
-        filteredItems = list
+        let newSections = buildSections(built, query: q)
+        let newById = Dictionary(uniqueKeysWithValues: built.map { ($0.id, $0) })
+        rows = built
         sections = newSections
-        itemsById = newById
-        matches = nextMatches
+        rowsById = newById
         if forceFirst {
-            selection = list.first?.id
+            selection = built.first?.id
         } else if let sel = selection, newById[sel] != nil {
             // keep
         } else {
-            selection = list.first?.id
+            selection = built.first?.id
         }
-        return list
+        return built
     }
 
-    private func buildSections(_ list: [ClipboardItem], query: String? = nil) -> [Section] {
+    private func buildSections(_ list: [ListRow], query: String) -> [Section] {
         guard !list.isEmpty else { return [] }
-        let trimmed = (query ?? self.query).trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
-            return [Section(id: 0, title: "Результаты", items: list)]
+            return [Section(id: 0, title: "Результаты", rows: list)]
         }
         let now = Date()
         let cal = Calendar.current
@@ -234,13 +248,13 @@ struct ContentView: View {
             "Ранее"
         ]
 
-        var groups: [Int: [ClipboardItem]] = [:]
-        for item in list {
-            groups[bucket(item.updatedAt), default: []].append(item)
+        var groups: [Int: [ListRow]] = [:]
+        for row in list {
+            groups[bucket(row.item.updatedAt), default: []].append(row)
         }
         return (0..<titles.count).compactMap { i in
             guard let arr = groups[i], !arr.isEmpty else { return nil }
-            return Section(id: i, title: titles[i], items: arr)
+            return Section(id: i, title: titles[i], rows: arr)
         }
     }
 
@@ -356,17 +370,13 @@ struct ContentView: View {
                     ForEach(groups) { section in
                         sectionHeader(section.title)
                             .id("section-\(section.id)")
-                        ForEach(section.items) { item in
-                            ItemRow(
-                                item: item,
-                                selected: selection == item.id,
-                                match: matches[item.id]
-                            )
-                                .id(item.id)
+                        ForEach(section.rows) { row in
+                            ItemRow(row: row, selected: selection == row.id)
+                                .id(row.id)
                                 .contentShape(Rectangle())
-                                .onTapGesture(count: 2) { paste(item) }
+                                .onTapGesture(count: 2) { paste(row.item) }
                                 .simultaneousGesture(
-                                    TapGesture().onEnded { selection = item.id }
+                                    TapGesture().onEnded { selection = row.id }
                                 )
                         }
                     }
@@ -400,14 +410,14 @@ struct ContentView: View {
     }
 
     private func move(_ delta: Int, proxy: ScrollViewProxy) {
-        let list = filteredItems
+        let list = rows
         guard !list.isEmpty else { return }
         let idx = list.firstIndex(where: { $0.id == selection }) ?? 0
         let new = max(0, min(list.count - 1, idx + delta))
         let newId = list[new].id
         guard newId != selection else { return }
         selection = newId
-        if let section = sections.first(where: { $0.items.first?.id == newId }) {
+        if let section = sections.first(where: { $0.rows.first?.id == newId }) {
             proxy.scrollTo("section-\(section.id)", anchor: .top)
         } else {
             proxy.scrollTo(newId, anchor: nil)
@@ -415,20 +425,20 @@ struct ContentView: View {
     }
 
     private func paste(_ override: ClipboardItem? = nil) {
-        guard let target = override ?? selection.flatMap({ itemsById[$0] }) else { return }
+        guard let target = override ?? selection.flatMap({ rowsById[$0]?.item }) else { return }
         if !Paster.shared.paste(target) {
             removeItem(target)
         }
     }
 
     private func deleteSelected() {
-        guard let sel = selection, let item = itemsById[sel] else { return }
-        removeItem(item)
+        guard let sel = selection, let row = rowsById[sel] else { return }
+        removeItem(row.item)
     }
 
     private func toggleFavorite() {
-        guard let sel = selection, let item = itemsById[sel] else { return }
-        item.isFavorite.toggle()
+        guard let sel = selection, let row = rowsById[sel] else { return }
+        row.item.isFavorite.toggle()
         try? ctx.save()
         recompute()
     }
@@ -446,13 +456,17 @@ struct ContentView: View {
 }
 
 struct ItemRow: View {
-    let item: ClipboardItem
+    let row: ContentView.ListRow
     let selected: Bool
-    let match: ContentView.SearchMatch?
 
-    private var matchSnippet: AttributedString? {
-        guard let match, !match.ranges.isEmpty else { return nil }
-        return SearchSnippet.build(text: match.fieldText, ranges: match.ranges, radius: 40)
+    private var item: ClipboardItem { row.item }
+    private var match: ContentView.SearchMatch? { row.match }
+
+    private var renderedText: AttributedString {
+        if let snippet = match?.snippet {
+            return snippet
+        }
+        return AttributedString(item.preview.replacingOccurrences(of: "\n", with: " "))
     }
 
     var body: some View {
@@ -502,38 +516,19 @@ struct ItemRow: View {
         case .color:
             colorContent
         case .code:
-            if let snippet = matchSnippet {
-                Text(snippet)
-                    .font(.system(.body, design: .monospaced))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            } else {
-                Text(item.preview.replacingOccurrences(of: "\n", with: " "))
-                    .font(.system(.body, design: .monospaced))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
+            Text(renderedText)
+                .font(.system(.body, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.tail)
         case .url:
-            if let snippet = matchSnippet {
-                Text(snippet)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            } else {
-                Text(item.preview)
-                    .lineLimit(1)
-                    .foregroundStyle(.blue)
-                    .truncationMode(.middle)
-            }
+            Text(renderedText)
+                .lineLimit(1)
+                .foregroundStyle(match == nil ? Color.blue : Color.primary)
+                .truncationMode(.middle)
         default:
-            if let snippet = matchSnippet {
-                Text(snippet)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            } else {
-                Text(item.preview.replacingOccurrences(of: "\n", with: " "))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
+            Text(renderedText)
+                .lineLimit(1)
+                .truncationMode(.tail)
         }
     }
 
@@ -547,7 +542,7 @@ struct ItemRow: View {
                     .frame(width: 44, height: 30)
                     .clipShape(RoundedRectangle(cornerRadius: 4))
             }
-            Text(item.preview)
+            Text(renderedText)
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
@@ -562,7 +557,7 @@ struct ItemRow: View {
                     RoundedRectangle(cornerRadius: 4)
                         .stroke(.secondary.opacity(0.3))
                 )
-            Text(item.preview)
+            Text(renderedText)
                 .font(.system(.body, design: .monospaced))
                 .lineLimit(1)
         }
