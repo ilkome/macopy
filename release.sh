@@ -17,19 +17,12 @@ BUILD_DIR="release-artifacts/$VERSION"
 ZIP_NAME="MaCopy-$VERSION.zip"
 ZIP_PATH="$BUILD_DIR/$ZIP_NAME"
 
-SIGN_UPDATE="$(brew --prefix 2>/dev/null)/Caskroom/sparkle/2.9.1/bin/sign_update"
+SIGN_UPDATE=".build/artifacts/sparkle/Sparkle/bin/sign_update"
 if [ ! -x "$SIGN_UPDATE" ]; then
     SIGN_UPDATE="$(ls /opt/homebrew/Caskroom/sparkle/*/bin/sign_update 2>/dev/null | head -1)"
 fi
 if [ ! -x "$SIGN_UPDATE" ]; then
-    echo "⚠  sign_update not found. Install sparkle cask: brew install --cask sparkle"
-    exit 1
-fi
-
-if [ -z "${SU_PUBLIC_ED_KEY:-}" ]; then
-    echo "⚠  SU_PUBLIC_ED_KEY env var not set."
-    echo "    Generate once: ~/path/to/Sparkle/bin/generate_keys"
-    echo "    Then: export SU_PUBLIC_ED_KEY='<public key>'"
+    echo "⚠  sign_update not found. Run: swift package resolve"
     exit 1
 fi
 
