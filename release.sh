@@ -26,8 +26,9 @@ if [ ! -x "$SIGN_UPDATE" ]; then
     exit 1
 fi
 
-echo "→ build version $VERSION"
-APP_VERSION="$VERSION" APP_BUILD="$(date +%s)" ./build-app.sh
+BUILD_NUMBER="$(date +%s)"
+echo "→ build version $VERSION (build $BUILD_NUMBER)"
+APP_VERSION="$VERSION" APP_BUILD="$BUILD_NUMBER" ./build-app.sh
 
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
@@ -50,7 +51,7 @@ APPCAST_ITEM=$(cat <<ITEM
         <item>
             <title>Version $VERSION</title>
             <pubDate>$PUB_DATE</pubDate>
-            <sparkle:version>$VERSION</sparkle:version>
+            <sparkle:version>$BUILD_NUMBER</sparkle:version>
             <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
             <enclosure
