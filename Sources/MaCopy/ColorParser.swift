@@ -35,7 +35,8 @@ enum ColorParser {
     }
 
     private static func parseHex(_ s: String) -> ParsedColor? {
-        var str = s.hasPrefix("#") ? String(s.dropFirst()) : s
+        guard s.hasPrefix("#") else { return nil }
+        var str = String(s.dropFirst())
         guard !str.isEmpty, str.allSatisfy({ $0.isHexDigit }) else { return nil }
         switch str.count {
         case 3, 4:
