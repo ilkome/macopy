@@ -2,19 +2,21 @@
 import PackageDescription
 
 let package = Package(
-    name: "ListTestSwiftUI",
+    name: "MaCopy",
     platforms: [.macOS(.v15)],
     products: [
-        .executable(name: "ListTestSwiftUI", targets: ["ListTestSwiftUI"])
+        .executable(name: "MaCopy", targets: ["MaCopy"])
     ],
     dependencies: [
-        .package(url: "https://github.com/krisk/fuse-swift.git", from: "1.4.0")
+        .package(url: "https://github.com/krisk/fuse-swift.git", from: "1.4.0"),
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0")
     ],
     targets: [
         .executableTarget(
-            name: "ListTestSwiftUI",
+            name: "MaCopy",
             dependencies: [
-                .product(name: "Fuse", package: "fuse-swift")
+                .product(name: "Fuse", package: "fuse-swift"),
+                .product(name: "Sparkle", package: "Sparkle")
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6)

@@ -340,6 +340,17 @@ struct ContentView: View {
                         bestRanges = r.ranges
                     }
                 }
+                if bestScore == nil {
+                    for field in fields {
+                        guard let field, !field.isEmpty else { continue }
+                        guard let r = SubsequenceSearch.search(pattern: q, in: field) else { continue }
+                        if bestScore == nil || r.score < bestScore! {
+                            bestScore = r.score
+                            bestField = field
+                            bestRanges = r.ranges
+                        }
+                    }
+                }
                 if let s = bestScore, let field = bestField, !bestRanges.isEmpty {
                     let snippet = SearchSnippet.build(text: field, ranges: bestRanges, radius: 40)
                     scored.append((item, s, snippet))

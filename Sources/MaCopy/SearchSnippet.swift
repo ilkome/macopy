@@ -1,5 +1,34 @@
 import SwiftUI
 
+enum SubsequenceSearch {
+    static func search(
+        pattern: String,
+        in text: String
+    ) -> (score: Double, ranges: [CountableClosedRange<Int>])? {
+        let p = Array(pattern.lowercased())
+        guard !p.isEmpty else { return nil }
+        let t = Array(text.lowercased())
+        var ranges: [CountableClosedRange<Int>] = []
+        var pi = 0
+        var first = -1
+        var last = -1
+        for (i, c) in t.enumerated() {
+            guard pi < p.count else { break }
+            if c == p[pi] {
+                if first < 0 { first = i }
+                last = i
+                ranges.append(i...i)
+                pi += 1
+            }
+        }
+        guard pi == p.count else { return nil }
+        let span = max(last - first + 1, 1)
+        let density = Double(p.count) / Double(span)
+        let score = 0.5 + (1.0 - density) * 0.4
+        return (score, ranges)
+    }
+}
+
 enum SearchSnippet {
     static func build(
         text: String,

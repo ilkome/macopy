@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-IDENTITY_NAME="ListTestSwiftUI Dev"
+IDENTITY_NAME="MaCopy Dev"
 
 if security find-identity -v -p codesigning | grep -q "$IDENTITY_NAME"; then
     echo "→ identity '$IDENTITY_NAME' уже есть в keychain"
