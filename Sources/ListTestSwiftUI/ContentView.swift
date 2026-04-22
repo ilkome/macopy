@@ -30,6 +30,19 @@ enum Layout {
     static var panelHeight: CGFloat {
         searchHeight + 1 + tabsHeight + 1 + listHeight
     }
+
+    static var urlMaxDomainsWidth: CGFloat {
+        panelWidth - splitDividerWidth * 2 - minUrlListWidth - minUrlPreviewWidth
+    }
+    static func urlMaxListWidth(domains: CGFloat) -> CGFloat {
+        panelWidth - splitDividerWidth * 2 - domains - minUrlPreviewWidth
+    }
+    static func urlPreviewWidth(domains: CGFloat, list: CGFloat) -> CGFloat {
+        max(
+            minUrlPreviewWidth,
+            panelWidth - splitDividerWidth * 2 - domains - list
+        )
+    }
 }
 
 enum Tab: Int, CaseIterable {
@@ -65,6 +78,9 @@ private let relativeFormatter: RelativeDateTimeFormatter = {
     return f
 }()
 
+private let otherDomainKey = "__other__"
+private let domainSectionPrefix = "domain-"
+
 struct ContentView: View {
     @Environment(\.modelContext) private var ctx
     @Query(ContentView.recentDescriptor) private var allItems: [ClipboardItem]
@@ -77,6 +93,7 @@ struct ContentView: View {
         return d
     }
 
+
     @State private var query: String = ""
     @State private var selection: Selectable?
     @State private var tab: Tab = .all
@@ -88,6 +105,9 @@ struct ContentView: View {
     @State private var rows: [RowModel] = []
     @State private var sections: [Section] = []
     @State private var rowsById: [UUID: RowModel] = [:]
+    @State private var domainByItemID: [UUID: String] = [:]
+    @State private var domainSectionsCache: [Section] = []
+    @State private var visibleListCache: [Selectable] = []
     @State private var minuteTick = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
     @State private var searchTask: Task<Void, Never>?
     @ObservedObject private var settings = AppSettings.shared
@@ -99,7 +119,7 @@ struct ContentView: View {
         var scrollID: String {
             switch self {
             case .item(let id): return id.uuidString
-            case .domain(let name): return "domain-\(name)"
+            case .domain(let name): return domainSectionPrefix + name
             }
         }
     }
@@ -115,7 +135,7 @@ struct ContentView: View {
             return rowsById[id]?.item
         case .domain(let name):
             return sections
-                .first(where: { $0.id == "domain-\(name)" })?
+                .first(where: { $0.id == domainSectionPrefix + name })?
                 .rows.first?.item
         case .none:
             return nil
@@ -128,27 +148,21 @@ struct ContentView: View {
 
     private var currentDomainName: String? {
         switch selection {
-        case .domain(let name):
-            return name
-        case .item(let id):
-            guard let section = sections.first(where: { s in
-                s.id.hasPrefix("domain-") && s.rows.contains { $0.id == id }
-            }) else { return nil }
-            return String(section.id.dropFirst("domain-".count))
-        case .none:
-            return nil
+        case .domain(let name): return name
+        case .item(let id): return domainByItemID[id]
+        case .none: return nil
         }
     }
 
     private var currentDomainRows: [RowModel] {
         guard let name = currentDomainName,
-              let section = sections.first(where: { $0.id == "domain-\(name)" })
+              let section = domainSectionsCache.first(where: { $0.id == domainSectionPrefix + name })
         else { return [] }
         return section.rows
     }
 
     private var domainSections: [Section] {
-        sections.filter { $0.id.hasPrefix("domain-") }
+        domainSectionsCache
     }
 
     @Observable
@@ -158,6 +172,19 @@ struct ContentView: View {
         var isSelected: Bool = false
 
         var id: UUID { item.id }
+
+        private var _parsedURL: URL??
+        var parsedURL: URL? {
+            if let cached = _parsedURL { return cached }
+            let raw = (item.text ?? item.preview).trimmingCharacters(in: .whitespacesAndNewlines)
+            var url = URL(string: raw)
+            if url == nil,
+               let encoded = raw.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+                url = URL(string: encoded)
+            }
+            _parsedURL = url
+            return url
+        }
 
         init(item: ClipboardItem, match: SearchMatch? = nil) {
             self.item = item
@@ -249,9 +276,24 @@ struct ContentView: View {
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .transaction { $0.animation = nil }
         .onAppear {
+            clampPersistedWidths()
             recompute()
             searchFocused = true
         }
+    }
+
+    private func clampPersistedWidths() {
+        let minList = Double(Layout.minListWidth)
+        let maxList = Double(Layout.maxListWidth)
+        listWidth = min(maxList, max(minList, listWidth))
+
+        let minDomains = Double(Layout.minDomainsWidth)
+        let maxDomains = Double(Layout.urlMaxDomainsWidth)
+        urlDomainsWidth = min(maxDomains, max(minDomains, urlDomainsWidth))
+
+        let minUrlList = Double(Layout.minUrlListWidth)
+        let maxUrlList = Double(Layout.urlMaxListWidth(domains: CGFloat(urlDomainsWidth)))
+        urlListWidth = min(maxUrlList, max(minUrlList, urlListWidth))
     }
 
     @discardableResult
@@ -314,10 +356,22 @@ struct ContentView: View {
         }
         let newSections = buildSections(built, query: q)
         let newById = Dictionary(uniqueKeysWithValues: built.map { ($0.id, $0) })
+        var newDomainByItem: [UUID: String] = [:]
+        var newDomainSections: [Section] = []
+        for section in newSections where section.id.hasPrefix(domainSectionPrefix) {
+            let name = String(section.id.dropFirst(domainSectionPrefix.count))
+            newDomainSections.append(section)
+            for row in section.rows {
+                newDomainByItem[row.id] = name
+            }
+        }
         rows = built
         sections = newSections
         rowsById = newById
+        domainByItemID = newDomainByItem
+        domainSectionsCache = newDomainSections
         let visible = visibleSelectables(sections: newSections, tab: tab, query: q)
+        visibleListCache = visible
         let newSelection: Selectable?
         if forceFirst {
             newSelection = visible.first
@@ -353,8 +407,8 @@ struct ContentView: View {
         let urlMode = tab == .urls && query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         var out: [Selectable] = []
         for section in sections {
-            if urlMode, section.id.hasPrefix("domain-") {
-                let name = String(section.id.dropFirst("domain-".count))
+            if urlMode, section.id.hasPrefix(domainSectionPrefix) {
+                let name = String(section.id.dropFirst(domainSectionPrefix.count))
                 out.append(.domain(name))
             } else {
                 out.append(contentsOf: section.rows.map { .item($0.id) })
@@ -409,7 +463,7 @@ struct ContentView: View {
     private func groupByDomain(_ list: [RowModel]) -> [Section] {
         var groups: [String: [RowModel]] = [:]
         for row in list {
-            let domain = Self.extractDomain(row.item) ?? "Без домена"
+            let domain = Self.extractDomain(row) ?? "Без домена"
             groups[domain, default: []].append(row)
         }
         let multi = groups.filter { $0.value.count > 1 }
@@ -425,14 +479,14 @@ struct ContentView: View {
         var sections: [Section] = sortedMulti.map { domain in
             let arr = multi[domain]!
             let title = "\(domain) · \(arr.count)"
-            return Section(id: "domain-\(domain)", title: title, rows: arr)
+            return Section(id: domainSectionPrefix + domain, title: title, rows: arr)
         }
         if !single.isEmpty {
             let combined = single.values.flatMap { $0 }.sorted {
                 $0.item.updatedAt > $1.item.updatedAt
             }
             sections.append(Section(
-                id: "domain-__other__",
+                id: domainSectionPrefix + otherDomainKey,
                 title: "Другие · \(combined.count)",
                 rows: combined
             ))
@@ -440,11 +494,8 @@ struct ContentView: View {
         return sections
     }
 
-    private static func extractDomain(_ item: ClipboardItem) -> String? {
-        guard let raw = item.text ?? Optional(item.preview),
-              let url = URL(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)),
-              var host = url.host?.lowercased()
-        else { return nil }
+    private static func extractDomain(_ row: RowModel) -> String? {
+        guard var host = row.parsedURL?.host?.lowercased() else { return nil }
         if host.hasPrefix("www.") { host = String(host.dropFirst(4)) }
         return host.isEmpty ? nil : host
     }
@@ -617,37 +668,27 @@ struct ContentView: View {
     }
 
     private func urlThreePane(proxy: ScrollViewProxy) -> some View {
-        let maxDomains = Layout.panelWidth
-            - Layout.splitDividerWidth * 2
-            - Layout.minUrlListWidth
-            - Layout.minUrlPreviewWidth
-        let usedForList = Layout.panelWidth
-            - Layout.splitDividerWidth * 2
-            - CGFloat(urlDomainsWidth)
-            - Layout.minUrlPreviewWidth
-        let previewWidth = Layout.panelWidth
-            - CGFloat(urlDomainsWidth)
-            - CGFloat(urlListWidth)
-            - Layout.splitDividerWidth * 2
+        let domainsW = CGFloat(urlDomainsWidth)
+        let listW = CGFloat(urlListWidth)
         return HStack(spacing: 0) {
             domainsPane(proxy: proxy)
-                .frame(width: CGFloat(urlDomainsWidth))
+                .frame(width: domainsW)
             ResizableDivider(
                 width: $urlDomainsWidth,
                 minWidth: Double(Layout.minDomainsWidth),
-                maxWidth: Double(maxDomains)
+                maxWidth: Double(Layout.urlMaxDomainsWidth)
             )
             .frame(width: Layout.splitDividerWidth)
             urlsPane(proxy: proxy)
-                .frame(width: CGFloat(urlListWidth))
+                .frame(width: listW)
             ResizableDivider(
                 width: $urlListWidth,
                 minWidth: Double(Layout.minUrlListWidth),
-                maxWidth: Double(usedForList)
+                maxWidth: Double(Layout.urlMaxListWidth(domains: domainsW))
             )
             .frame(width: Layout.splitDividerWidth)
             PreviewPane(item: previewItem)
-                .frame(width: max(Layout.minUrlPreviewWidth, previewWidth))
+                .frame(width: Layout.urlPreviewWidth(domains: domainsW, list: listW))
         }
     }
 
@@ -658,7 +699,7 @@ struct ContentView: View {
                     emptyState
                 } else {
                     ForEach(domainSections) { section in
-                        let name = String(section.id.dropFirst("domain-".count))
+                        let name = String(section.id.dropFirst(domainSectionPrefix.count))
                         domainRow(name: name, count: section.rows.count)
                             .id("section-\(section.id)")
                     }
@@ -670,7 +711,7 @@ struct ContentView: View {
 
     private func domainRow(name: String, count: Int) -> some View {
         let isSelected = currentDomainName == name
-        let displayName = name == "__other__" ? "Другие" : name
+        let displayName = name == otherDomainKey ? "Другие" : name
         return HStack(spacing: 8) {
             Text(displayName)
                 .font(.system(size: 13, weight: .medium))
@@ -709,9 +750,9 @@ struct ContentView: View {
     }
 
     private func urlPathRowView(_ row: RowModel) -> some View {
-        let override: String = currentDomainName == "__other__"
+        let override: String = currentDomainName == otherDomainKey
             ? Self.stripScheme((row.item.text ?? row.item.preview).trimmingCharacters(in: .whitespacesAndNewlines))
-            : Self.pathWithoutHost(row.item)
+            : Self.pathWithoutHost(row)
         return ItemRow(model: row, displayOverride: override)
             .id(row.id)
             .contentShape(Rectangle())
@@ -721,9 +762,9 @@ struct ContentView: View {
             )
     }
 
-    private static func pathWithoutHost(_ item: ClipboardItem) -> String {
-        let raw = (item.text ?? item.preview).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: raw), url.host != nil else { return Self.stripScheme(raw) }
+    private static func pathWithoutHost(_ row: RowModel) -> String {
+        let raw = (row.item.text ?? row.item.preview).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = row.parsedURL, url.host != nil else { return Self.stripScheme(raw) }
         var tail = url.path
         if let q = url.query, !q.isEmpty { tail += "?\(q)" }
         if let f = url.fragment, !f.isEmpty { tail += "#\(f)" }
@@ -777,13 +818,10 @@ struct ContentView: View {
     }
 
     private func move(_ delta: Int, proxy: ScrollViewProxy) {
-        if urlMode, case .item = selection {
+        if urlMode, case let .item(currentId) = selection {
             let list = currentDomainRows
             guard !list.isEmpty else { return }
-            let idx = list.firstIndex { row in
-                if case let .item(id) = selection, id == row.id { return true }
-                return false
-            } ?? 0
+            let idx = list.firstIndex { $0.id == currentId } ?? 0
             let new = max(0, min(list.count - 1, idx + delta))
             let next = Selectable.item(list[new].id)
             guard next != selection else { return }
@@ -791,7 +829,7 @@ struct ContentView: View {
             scrollTo(next, proxy: proxy)
             return
         }
-        let visible = visibleSelectables(sections: sections, tab: tab, query: query)
+        let visible = visibleListCache
         guard !visible.isEmpty else { return }
         let idx = selection.flatMap { visible.firstIndex(of: $0) } ?? 0
         let new = max(0, min(visible.count - 1, idx + delta))
@@ -816,7 +854,7 @@ struct ContentView: View {
 
     private func enterDomainItems() -> Bool {
         guard case let .domain(name) = selection,
-              let section = sections.first(where: { $0.id == "domain-\(name)" }),
+              let section = sections.first(where: { $0.id == domainSectionPrefix + name }),
               let first = section.rows.first
         else { return false }
         applySelection(.item(first.id))
@@ -826,10 +864,10 @@ struct ContentView: View {
     private func backToDomains() -> Bool {
         guard case let .item(id) = selection,
               let section = sections.first(where: { s in
-                  s.id.hasPrefix("domain-") && s.rows.contains { $0.id == id }
+                  s.id.hasPrefix(domainSectionPrefix) && s.rows.contains { $0.id == id }
               })
         else { return false }
-        let name = String(section.id.dropFirst("domain-".count))
+        let name = String(section.id.dropFirst(domainSectionPrefix.count))
         applySelection(.domain(name))
         return true
     }
