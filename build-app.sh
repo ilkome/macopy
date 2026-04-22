@@ -18,10 +18,20 @@ mkdir -p "$MACOS_DIR"
 
 cp ".build/release/$EXE_NAME" "$MACOS_DIR/$EXE_NAME"
 
+FRAMEWORKS_DIR="$CONTENTS/Frameworks"
+mkdir -p "$FRAMEWORKS_DIR"
+SPARKLE_SRC=".build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
+if [ -d "$SPARKLE_SRC" ]; then
+    rm -rf "$FRAMEWORKS_DIR/Sparkle.framework"
+    cp -R "$SPARKLE_SRC" "$FRAMEWORKS_DIR/Sparkle.framework"
+fi
+
+install_name_tool -add_rpath "@executable_path/../Frameworks" "$MACOS_DIR/$EXE_NAME" 2>/dev/null || true
+
 VERSION="${APP_VERSION:-1.0}"
 BUILD="${APP_BUILD:-1}"
 FEED_URL="${SU_FEED_URL:-https://raw.githubusercontent.com/ilkome/macopy/main/appcast.xml}"
-PUBLIC_KEY="${SU_PUBLIC_ED_KEY:-}"
+PUBLIC_KEY="${SU_PUBLIC_ED_KEY:-ACtaihbc3SKKgsYkJ9QLAbZWA8ENfBiyjGaZUwP+Fac=}"
 
 cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
