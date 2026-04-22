@@ -71,7 +71,7 @@ struct ContentView: View {
     }
 
     @State private var query: String = ""
-    @State private var selection: UUID?
+    @State private var selection: Selectable?
     @State private var tab: Tab = .all
     @AppStorage("listWidth") private var listWidth: Double = Double(Layout.defaultListWidth)
     @FocusState private var searchFocused: Bool
@@ -83,8 +83,63 @@ struct ContentView: View {
     @State private var searchTask: Task<Void, Never>?
     @ObservedObject private var settings = AppSettings.shared
 
+    enum Selectable: Hashable {
+        case item(UUID)
+        case domain(String)
+
+        var scrollID: String {
+            switch self {
+            case .item(let id): return id.uuidString
+            case .domain(let name): return "domain-\(name)"
+            }
+        }
+    }
+
     private var selectedItem: ClipboardItem? {
-        selection.flatMap { rowsById[$0]?.item }
+        guard case let .item(id) = selection else { return nil }
+        return rowsById[id]?.item
+    }
+
+    private var previewItem: ClipboardItem? {
+        switch selection {
+        case .item(let id):
+            return rowsById[id]?.item
+        case .domain(let name):
+            return sections
+                .first(where: { $0.id == "domain-\(name)" })?
+                .rows.first?.item
+        case .none:
+            return nil
+        }
+    }
+
+    private var urlMode: Bool {
+        tab == .urls && query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var currentDomainName: String? {
+        switch selection {
+        case .domain(let name):
+            return name
+        case .item(let id):
+            guard let section = sections.first(where: { s in
+                s.id.hasPrefix("domain-") && s.rows.contains { $0.id == id }
+            }) else { return nil }
+            return String(section.id.dropFirst("domain-".count))
+        case .none:
+            return nil
+        }
+    }
+
+    private var currentDomainRows: [RowModel] {
+        guard let name = currentDomainName,
+              let section = sections.first(where: { $0.id == "domain-\(name)" })
+        else { return [] }
+        return section.rows
+    }
+
+    private var domainSections: [Section] {
+        sections.filter { $0.id.hasPrefix("domain-") }
     }
 
     @Observable
@@ -102,7 +157,7 @@ struct ContentView: View {
     }
 
     struct Section: Identifiable {
-        let id: Int
+        let id: String
         let title: String
         let rows: [RowModel]
     }
@@ -130,23 +185,28 @@ struct ContentView: View {
                 tabBar
                     .frame(height: Layout.tabsHeight)
                 Divider().opacity(0.3)
-                HStack(spacing: 0) {
-                    listView(proxy: proxy)
-                        .frame(width: CGFloat(listWidth))
-                    ResizableDivider(
-                        width: $listWidth,
-                        minWidth: Double(Layout.minListWidth),
-                        maxWidth: Double(Layout.maxListWidth)
-                    )
-                    .frame(width: Layout.splitDividerWidth)
-                    PreviewPane(item: selectedItem)
-                        .frame(
-                            width: Layout.panelWidth
-                                - CGFloat(listWidth)
-                                - Layout.splitDividerWidth
+                if urlMode {
+                    urlThreePane(proxy: proxy)
+                        .frame(height: Layout.listHeight)
+                } else {
+                    HStack(spacing: 0) {
+                        listView(proxy: proxy)
+                            .frame(width: CGFloat(listWidth))
+                        ResizableDivider(
+                            width: $listWidth,
+                            minWidth: Double(Layout.minListWidth),
+                            maxWidth: Double(Layout.maxListWidth)
                         )
+                        .frame(width: Layout.splitDividerWidth)
+                        PreviewPane(item: previewItem)
+                            .frame(
+                                width: Layout.panelWidth
+                                    - CGFloat(listWidth)
+                                    - Layout.splitDividerWidth
+                            )
+                    }
+                    .frame(height: Layout.listHeight)
                 }
-                .frame(height: Layout.listHeight)
             }
             .onReceive(NotificationCenter.default.publisher(for: .clipboardPanelReset)) { _ in
                 resetToTop(proxy: proxy)
@@ -248,39 +308,65 @@ struct ContentView: View {
         rows = built
         sections = newSections
         rowsById = newById
-        let newSelection: UUID?
+        let visible = visibleSelectables(sections: newSections, tab: tab, query: q)
+        let newSelection: Selectable?
         if forceFirst {
-            newSelection = built.first?.id
-        } else if let sel = selection, newById[sel] != nil {
+            newSelection = visible.first
+        } else if let sel = selection, visible.contains(sel) {
             newSelection = sel
         } else {
-            newSelection = built.first?.id
+            newSelection = visible.first
         }
         applySelection(newSelection)
         return built
     }
 
-    private func applySelection(_ newId: UUID?) {
-        guard selection != newId else { return }
-        if let oldId = selection,
+    private func applySelection(_ new: Selectable?) {
+        guard selection != new else { return }
+        if case let .item(oldId) = selection,
            let oldModel = rowsById[oldId],
            oldModel.isSelected {
             oldModel.isSelected = false
         }
-        selection = newId
-        if let newId,
+        selection = new
+        if case let .item(newId) = new,
            let newModel = rowsById[newId],
            !newModel.isSelected {
             newModel.isSelected = true
         }
     }
 
+    private func visibleSelectables(
+        sections: [Section],
+        tab: Tab,
+        query: String
+    ) -> [Selectable] {
+        let urlMode = tab == .urls && query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        var out: [Selectable] = []
+        for section in sections {
+            if urlMode, section.id.hasPrefix("domain-") {
+                let name = String(section.id.dropFirst("domain-".count))
+                out.append(.domain(name))
+            } else {
+                out.append(contentsOf: section.rows.map { .item($0.id) })
+            }
+        }
+        return out
+    }
+
     private func buildSections(_ list: [RowModel], query: String) -> [Section] {
         guard !list.isEmpty else { return [] }
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
-            return [Section(id: 0, title: "Результаты", rows: list)]
+            return [Section(id: "results", title: "Результаты", rows: list)]
         }
+        if tab == .urls {
+            return groupByDomain(list)
+        }
+        return groupByTime(list)
+    }
+
+    private func groupByTime(_ list: [RowModel]) -> [Section] {
         let now = Date()
         let cal = Calendar.current
         let yesterday = cal.date(byAdding: .day, value: -1, to: now)
@@ -307,8 +393,38 @@ struct ContentView: View {
         }
         return (0..<titles.count).compactMap { i in
             guard let arr = groups[i], !arr.isEmpty else { return nil }
-            return Section(id: i, title: titles[i], rows: arr)
+            return Section(id: "bucket-\(i)", title: titles[i], rows: arr)
         }
+    }
+
+    private func groupByDomain(_ list: [RowModel]) -> [Section] {
+        var groups: [String: [RowModel]] = [:]
+        for row in list {
+            let domain = Self.extractDomain(row.item) ?? "Без домена"
+            groups[domain, default: []].append(row)
+        }
+        let sortedDomains = groups.keys.sorted { lhs, rhs in
+            let lCount = groups[lhs]?.count ?? 0
+            let rCount = groups[rhs]?.count ?? 0
+            if lCount != rCount { return lCount > rCount }
+            let lTop = groups[lhs]?.first?.item.updatedAt ?? .distantPast
+            let rTop = groups[rhs]?.first?.item.updatedAt ?? .distantPast
+            return lTop > rTop
+        }
+        return sortedDomains.compactMap { domain in
+            guard let arr = groups[domain], !arr.isEmpty else { return nil }
+            let title = "\(domain) · \(arr.count)"
+            return Section(id: "domain-\(domain)", title: title, rows: arr)
+        }
+    }
+
+    private static func extractDomain(_ item: ClipboardItem) -> String? {
+        guard let raw = item.text ?? Optional(item.preview),
+              let url = URL(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)),
+              var host = url.host?.lowercased()
+        else { return nil }
+        if host.hasPrefix("www.") { host = String(host.dropFirst(4)) }
+        return host.isEmpty ? nil : host
     }
 
     private func resetToTop(proxy: ScrollViewProxy) {
@@ -376,15 +492,21 @@ struct ContentView: View {
                 }
                 .onKeyPress(.leftArrow) {
                     guard query.isEmpty else { return .ignored }
+                    if urlMode, backToDomains() { return .handled }
                     cycleTab(-1)
                     return .handled
                 }
                 .onKeyPress(.rightArrow) {
                     guard query.isEmpty else { return .ignored }
+                    if urlMode, enterDomainItems() { return .handled }
                     cycleTab(1)
                     return .handled
                 }
                 .onKeyPress(.return) {
+                    if case .domain = selection {
+                        _ = enterDomainItems()
+                        return .handled
+                    }
                     paste()
                     return .handled
                 }
@@ -453,19 +575,102 @@ struct ContentView: View {
                         sectionHeader(section.title)
                             .id("section-\(section.id)")
                         ForEach(section.rows) { row in
-                            ItemRow(model: row)
-                                .id(row.id)
-                                .contentShape(Rectangle())
-                                .onTapGesture(count: 2) { paste(row.item) }
-                                .simultaneousGesture(
-                                    TapGesture().onEnded { applySelection(row.id) }
-                                )
+                            itemRowView(row)
                         }
                     }
                 }
             }
         }
         .scrollIndicators(.never)
+    }
+
+    private func itemRowView(_ row: RowModel) -> some View {
+        ItemRow(model: row)
+            .id(row.id)
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) { paste(row.item) }
+            .simultaneousGesture(
+                TapGesture().onEnded { applySelection(.item(row.id)) }
+            )
+    }
+
+    private func urlThreePane(proxy: ScrollViewProxy) -> some View {
+        HStack(spacing: 0) {
+            domainsPane(proxy: proxy)
+                .frame(width: 180)
+            Divider().opacity(0.3)
+            urlsPane(proxy: proxy)
+                .frame(width: 300)
+            Divider().opacity(0.3)
+            PreviewPane(item: previewItem)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func domainsPane(proxy: ScrollViewProxy) -> some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                if domainSections.isEmpty {
+                    emptyState
+                } else {
+                    ForEach(domainSections) { section in
+                        let name = String(section.id.dropFirst("domain-".count))
+                        domainRow(name: name, count: section.rows.count)
+                            .id("section-\(section.id)")
+                    }
+                }
+            }
+        }
+        .scrollIndicators(.never)
+    }
+
+    private func domainRow(name: String, count: Int) -> some View {
+        let isSelected = currentDomainName == name
+        return HStack(spacing: 8) {
+            Text(name)
+                .font(.system(size: 13, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .foregroundStyle(isSelected ? .primary : .secondary)
+            Spacer()
+            Text("\(count)")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: Layout.rowHeight)
+        .background(Color.accentColor.opacity(isSelected ? 0.3 : 0))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            applySelection(.domain(name))
+        }
+    }
+
+    private func urlsPane(proxy: ScrollViewProxy) -> some View {
+        let rows = currentDomainRows
+        return ScrollView {
+            LazyVStack(spacing: 0) {
+                if rows.isEmpty {
+                    placeholderPane("Выбери домен")
+                } else {
+                    ForEach(rows) { row in
+                        itemRowView(row)
+                    }
+                }
+            }
+        }
+        .scrollIndicators(.never)
+    }
+
+    private func placeholderPane(_ text: String) -> some View {
+        VStack {
+            Text(text)
+                .foregroundStyle(.tertiary)
+                .font(.system(size: 12))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(24)
     }
 
     private func sectionHeader(_ title: String) -> some View {
@@ -492,34 +697,79 @@ struct ContentView: View {
     }
 
     private func move(_ delta: Int, proxy: ScrollViewProxy) {
-        let list = rows
-        guard !list.isEmpty else { return }
-        let idx = list.firstIndex(where: { $0.id == selection }) ?? 0
-        let new = max(0, min(list.count - 1, idx + delta))
-        let newId = list[new].id
-        guard newId != selection else { return }
-        applySelection(newId)
-        if let section = sections.first(where: { $0.rows.first?.id == newId }) {
-            proxy.scrollTo("section-\(section.id)", anchor: .top)
-        } else {
-            proxy.scrollTo(newId, anchor: nil)
+        if urlMode, case .item = selection {
+            let list = currentDomainRows
+            guard !list.isEmpty else { return }
+            let idx = list.firstIndex { row in
+                if case let .item(id) = selection, id == row.id { return true }
+                return false
+            } ?? 0
+            let new = max(0, min(list.count - 1, idx + delta))
+            let next = Selectable.item(list[new].id)
+            guard next != selection else { return }
+            applySelection(next)
+            scrollTo(next, proxy: proxy)
+            return
         }
+        let visible = visibleSelectables(sections: sections, tab: tab, query: query)
+        guard !visible.isEmpty else { return }
+        let idx = selection.flatMap { visible.firstIndex(of: $0) } ?? 0
+        let new = max(0, min(visible.count - 1, idx + delta))
+        let next = visible[new]
+        guard next != selection else { return }
+        applySelection(next)
+        scrollTo(next, proxy: proxy)
+    }
+
+    private func scrollTo(_ target: Selectable, proxy: ScrollViewProxy) {
+        switch target {
+        case .item(let id):
+            if let section = sections.first(where: { $0.rows.first?.id == id }) {
+                proxy.scrollTo("section-\(section.id)", anchor: .top)
+            } else {
+                proxy.scrollTo(id, anchor: nil)
+            }
+        case .domain(let name):
+            proxy.scrollTo("section-domain-\(name)", anchor: .top)
+        }
+    }
+
+    private func enterDomainItems() -> Bool {
+        guard case let .domain(name) = selection,
+              let section = sections.first(where: { $0.id == "domain-\(name)" }),
+              let first = section.rows.first
+        else { return false }
+        applySelection(.item(first.id))
+        return true
+    }
+
+    private func backToDomains() -> Bool {
+        guard case let .item(id) = selection,
+              let section = sections.first(where: { s in
+                  s.id.hasPrefix("domain-") && s.rows.contains { $0.id == id }
+              })
+        else { return false }
+        let name = String(section.id.dropFirst("domain-".count))
+        applySelection(.domain(name))
+        return true
     }
 
     private func paste(_ override: ClipboardItem? = nil) {
-        guard let target = override ?? selection.flatMap({ rowsById[$0]?.item }) else { return }
-        if !Paster.shared.paste(target) {
-            removeItem(target)
+        if let override {
+            if !Paster.shared.paste(override) { removeItem(override) }
+            return
         }
+        guard case let .item(id) = selection, let row = rowsById[id] else { return }
+        if !Paster.shared.paste(row.item) { removeItem(row.item) }
     }
 
     private func deleteSelected() {
-        guard let sel = selection, let row = rowsById[sel] else { return }
+        guard case let .item(id) = selection, let row = rowsById[id] else { return }
         removeItem(row.item)
     }
 
     private func toggleFavorite() {
-        guard let sel = selection, let row = rowsById[sel] else { return }
+        guard case let .item(id) = selection, let row = rowsById[id] else { return }
         row.item.isFavorite.toggle()
         try? ctx.save()
         recompute()
