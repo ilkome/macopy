@@ -18,9 +18,8 @@ final class Paster {
     private init() {}
 
     @discardableResult
-    func paste(_ item: ClipboardItem) -> Bool {
+    func copyToPasteboard(_ item: ClipboardItem) -> Bool {
         let pb = NSPasteboard.general
-
         switch item.kind {
         case .image:
             guard let path = item.imagePath else { return false }
@@ -36,6 +35,20 @@ final class Paster {
             pb.clearContents()
             pb.setString(text, forType: .string)
         }
+        return true
+    }
+
+    @discardableResult
+    func copyOnly(_ item: ClipboardItem) -> Bool {
+        guard copyToPasteboard(item) else { return false }
+        didPaste = true
+        AppDelegate.shared?.hidePanel()
+        return true
+    }
+
+    @discardableResult
+    func paste(_ item: ClipboardItem) -> Bool {
+        guard copyToPasteboard(item) else { return false }
 
         didPaste = true
         AppDelegate.shared?.hidePanel()

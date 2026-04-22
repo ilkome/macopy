@@ -586,12 +586,16 @@ struct ContentView: View {
                     cycleTab(1)
                     return .handled
                 }
-                .onKeyPress(.return) {
+                .onKeyPress(keys: [.return]) { press in
                     if case .domain = selection {
                         _ = enterDomainItems()
                         return .handled
                     }
-                    paste()
+                    if press.modifiers.contains(.shift) {
+                        copyOnlySelected()
+                    } else {
+                        paste()
+                    }
                     return .handled
                 }
                 .onKeyPress(keys: ["d"]) { press in
@@ -750,7 +754,7 @@ struct ContentView: View {
         let override: String = currentDomainName == otherDomainKey
             ? Self.stripScheme((row.item.text ?? row.item.preview).trimmingCharacters(in: .whitespacesAndNewlines))
             : Self.pathWithoutHost(row)
-        return ItemRow(model: row, displayOverride: override)
+        return ItemRow(model: row, displayOverride: override, showBadge: false)
             .id(row.id)
             .contentShape(Rectangle())
             .onTapGesture(count: 2) { paste(row.item) }
@@ -770,7 +774,7 @@ struct ContentView: View {
         return tail
     }
 
-    private static func stripScheme(_ raw: String) -> String {
+    static func stripScheme(_ raw: String) -> String {
         var s = raw
         for prefix in ["https://", "http://", "ftp://"] where s.hasPrefix(prefix) {
             s.removeFirst(prefix.count)
@@ -878,6 +882,11 @@ struct ContentView: View {
         if !Paster.shared.paste(row.item) { removeItem(row.item) }
     }
 
+    private func copyOnlySelected() {
+        guard case let .item(id) = selection, let row = rowsById[id] else { return }
+        if !Paster.shared.copyOnly(row.item) { removeItem(row.item) }
+    }
+
     private func deleteSelected() {
         guard case let .item(id) = selection, let row = rowsById[id] else { return }
         removeItem(row.item)
@@ -909,6 +918,7 @@ struct ContentView: View {
 struct ItemRow: View {
     @Bindable var model: ContentView.RowModel
     var displayOverride: String? = nil
+    var showBadge: Bool = true
 
     private var item: ClipboardItem { model.item }
     private var match: ContentView.SearchMatch? { model.match }
@@ -921,12 +931,18 @@ struct ItemRow: View {
         if let snippet = match?.snippet {
             return snippet
         }
-        return AttributedString(item.preview.replacingOccurrences(of: "\n", with: " "))
+        let raw = item.preview.replacingOccurrences(of: "\n", with: " ")
+        if item.kind == .url {
+            return AttributedString(ContentView.stripScheme(raw))
+        }
+        return AttributedString(raw)
     }
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
-            leadingBadge
+            if showBadge {
+                leadingBadge
+            }
             textView
                 .frame(maxWidth: .infinity, alignment: .leading)
             if item.isFavorite {
@@ -952,7 +968,7 @@ struct ItemRow: View {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
-                    .frame(width: 30, height: 22)
+                    .frame(width: 26, height: 18)
                     .clipShape(RoundedRectangle(cornerRadius: 4))
             } else {
                 badgeIcon(systemName: "photo")
@@ -960,7 +976,7 @@ struct ItemRow: View {
         case .color:
             RoundedRectangle(cornerRadius: 4)
                 .fill(ColorParser.parse(item.text ?? "")?.color ?? .gray)
-                .frame(width: 22, height: 22)
+                .frame(width: 26, height: 26)
                 .overlay(
                     RoundedRectangle(cornerRadius: 4)
                         .stroke(.secondary.opacity(0.3))
@@ -976,9 +992,9 @@ struct ItemRow: View {
 
     private func badgeIcon(systemName: String) -> some View {
         Image(systemName: systemName)
-            .font(.system(size: 12))
+            .font(.system(size: 14))
             .foregroundStyle(.secondary)
-            .frame(width: 22, height: 22)
+            .frame(width: 26, height: 26)
     }
 
     @ViewBuilder

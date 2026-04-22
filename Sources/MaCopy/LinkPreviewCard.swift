@@ -58,8 +58,6 @@ struct LinkPreviewCard: View {
 
     @ViewBuilder
     private var card: some View {
-        let pending = preview?.status == .pending
-        let failed = preview?.status == .failed
         let title = preview?.title ?? ""
         let summary = preview?.summary ?? ""
         let hasContent = !title.isEmpty || !summary.isEmpty || preview?.imageData != nil
@@ -98,17 +96,6 @@ struct LinkPreviewCard: View {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(Color.secondary.opacity(0.08))
             )
-        } else if pending {
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text("Загружаем превью…")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
-        } else if failed {
-            Text("Превью недоступно")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
         }
     }
 
