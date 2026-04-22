@@ -46,7 +46,7 @@ enum Layout {
 }
 
 enum Tab: Int, CaseIterable {
-    case all, favorites, images, urls, colors, code
+    case favorites, all, urls, images, colors, code
 
     var title: String {
         switch self {
