@@ -14,8 +14,9 @@ REPO="ilkome/macopy"
 APP_DISPLAY="MaCopy by ilkome"
 APP_DIR="$APP_DISPLAY.app"
 BUILD_DIR="release-artifacts/$VERSION"
-ZIP_NAME="MaCopy-$VERSION.zip"
-ZIP_PATH="$BUILD_DIR/$ZIP_NAME"
+DMG_NAME="MaCopy-$VERSION.dmg"
+DMG_PATH="$BUILD_DIR/$DMG_NAME"
+STAGE_DIR="$BUILD_DIR/stage"
 
 SIGN_UPDATE=".build/artifacts/sparkle/Sparkle/bin/sign_update"
 if [ ! -x "$SIGN_UPDATE" ]; then
@@ -31,14 +32,25 @@ echo "→ build version $VERSION (build $BUILD_NUMBER)"
 APP_VERSION="$VERSION" APP_BUILD="$BUILD_NUMBER" ./build-app.sh
 
 rm -rf "$BUILD_DIR"
-mkdir -p "$BUILD_DIR"
+mkdir -p "$STAGE_DIR"
 
-echo "→ zip $ZIP_NAME"
-ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$ZIP_PATH"
-SIZE=$(stat -f %z "$ZIP_PATH")
+echo "→ stage $APP_DIR + Applications shortcut"
+cp -R "$APP_DIR" "$STAGE_DIR/"
+ln -s /Applications "$STAGE_DIR/Applications"
+
+echo "→ dmg $DMG_NAME"
+hdiutil create \
+    -volname "$APP_DISPLAY" \
+    -srcfolder "$STAGE_DIR" \
+    -fs HFS+ \
+    -format UDZO \
+    -ov "$DMG_PATH" >/dev/null
+
+rm -rf "$STAGE_DIR"
+SIZE=$(stat -f %z "$DMG_PATH")
 
 echo "→ sign update"
-SIG_LINE=$("$SIGN_UPDATE" "$ZIP_PATH" | head -1)
+SIG_LINE=$("$SIGN_UPDATE" "$DMG_PATH" | head -1)
 ED_SIG=$(echo "$SIG_LINE" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')
 
 if [ -z "$ED_SIG" ]; then
@@ -55,9 +67,9 @@ APPCAST_ITEM=$(cat <<ITEM
             <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <enclosure
-                url="https://github.com/$REPO/releases/download/v$VERSION/$ZIP_NAME"
+                url="https://github.com/$REPO/releases/download/v$VERSION/$DMG_NAME"
                 length="$SIZE"
-                type="application/octet-stream"
+                type="application/x-apple-diskimage"
                 sparkle:edSignature="$ED_SIG" />
         </item>
 ITEM
@@ -68,5 +80,5 @@ echo ""
 echo "$APPCAST_ITEM"
 echo ""
 echo "→ then:"
-echo "    gh release create v$VERSION \"$ZIP_PATH\" --title \"v$VERSION\" --notes \"...\""
+echo "    gh release create v$VERSION \"$DMG_PATH\" --title \"v$VERSION\" --notes \"...\""
 echo "    git add appcast.xml && git commit -m 'release $VERSION' && git push"
