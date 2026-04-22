@@ -1105,36 +1105,11 @@ struct PreviewPane: View {
     @ViewBuilder
     private func content(for item: ClipboardItem) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            header(for: item)
-            Divider().opacity(0.3)
             body(for: item)
             Spacer(minLength: 0)
+            Divider().opacity(0.3)
             footer(for: item)
         }
-    }
-
-    private func header(for item: ClipboardItem) -> some View {
-        HStack(spacing: 8) {
-            if let path = item.sourceAppIconPath,
-               let img = ImageCache.image(at: Storage.iconURL(for: path)) {
-                Image(nsImage: img).resizable().scaledToFit().frame(width: 20, height: 20)
-            }
-            VStack(alignment: .leading, spacing: 1) {
-                Text(item.sourceAppName ?? "—")
-                    .font(.caption)
-                    .lineLimit(1)
-                Text(relativeFormatter.localizedString(for: item.updatedAt, relativeTo: Date()))
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
-            Spacer(minLength: 0)
-            if item.isFavorite {
-                Image(systemName: "star.fill")
-                    .font(.caption)
-                    .foregroundStyle(.yellow)
-            }
-        }
-        .padding(12)
     }
 
     @ViewBuilder
@@ -1175,9 +1150,6 @@ struct PreviewPane: View {
                         .underline()
                 }
                 .buttonStyle(.plain)
-                if let host = url.host {
-                    Text(host).font(.caption).foregroundStyle(.secondary)
-                }
             } else {
                 Text(raw).textSelection(.enabled)
             }
@@ -1243,16 +1215,30 @@ struct PreviewPane: View {
     }
 
     private func footer(for item: ClipboardItem) -> some View {
-        HStack(spacing: 12) {
-            Text(byteString(item.byteSize))
-            if let path = item.sourceFilePath {
-                Text("•").foregroundStyle(.tertiary)
-                Text(path).truncationMode(.middle).lineLimit(1)
+        HStack(spacing: 8) {
+            if let path = item.sourceAppIconPath,
+               let img = ImageCache.image(at: Storage.iconURL(for: path)) {
+                Image(nsImage: img).resizable().scaledToFit().frame(width: 16, height: 16)
             }
+            Text(item.sourceAppName ?? "—")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Text("·").foregroundStyle(.tertiary).font(.caption2)
+            Text(relativeFormatter.localizedString(for: item.updatedAt, relativeTo: Date()))
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            Text("·").foregroundStyle(.tertiary).font(.caption2)
+            Text(byteString(item.byteSize))
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
             Spacer(minLength: 0)
+            if item.isFavorite {
+                Image(systemName: "star.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.yellow)
+            }
         }
-        .font(.caption2)
-        .foregroundStyle(.tertiary)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
     }
