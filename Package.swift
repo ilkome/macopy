@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "MaCopy",
-    platforms: [.macOS(.v15)],
+    platforms: [.macOS(.v14)],
     products: [
         .executable(name: "MaCopy", targets: ["MaCopy"])
     ],
