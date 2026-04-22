@@ -4,7 +4,7 @@
 
 ## Требования
 
-- macOS 15 Sequoia или новее
+- macOS 14 Sonoma или новее
 - Swift 6 toolchain (Xcode 16+)
 
 ## Сборка
@@ -172,7 +172,7 @@ Sources/MaCopy/
 - **CGEvent** - симуляция нажатия ⌘V
 - **ApplicationServices** - `AXIsProcessTrusted` для проверки Accessibility
 
-Swift 6 strict concurrency, macOS 15+ only.
+Swift 6 strict concurrency, macOS 14+ only.
 
 ## Остановка
 
