@@ -631,6 +631,7 @@ struct ContentView: View {
     private var settingsMenu: some View {
         Menu {
             Toggle("OCR для скриншотов", isOn: $settings.ocrEnabled)
+            Toggle("Превью ссылок", isOn: $settings.linkPreviewsEnabled)
             Picker("Плотность фона", selection: $settings.panelMaterial) {
                 ForEach(PanelMaterial.allCases) { option in
                     Text(option.title).tag(option)
@@ -721,27 +722,12 @@ struct ContentView: View {
     }
 
     private func domainRow(name: String, count: Int) -> some View {
-        let isSelected = currentDomainName == name
-        let displayName = name == otherDomainKey ? "Другие" : name
-        return HStack(spacing: 8) {
-            Text(displayName)
-                .font(.system(size: 13, weight: .medium))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .foregroundStyle(isSelected ? .primary : .secondary)
-            Spacer()
-            Text("\(count)")
-                .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
-        }
-        .padding(.horizontal, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: Layout.rowHeight)
-        .background(Color.accentColor.opacity(isSelected ? 0.3 : 0))
-        .contentShape(Rectangle())
-        .onTapGesture {
-            applySelection(.domain(name))
-        }
+        DomainRow(
+            name: name,
+            count: count,
+            isSelected: currentDomainName == name,
+            onTap: { applySelection(.domain(name)) }
+        )
     }
 
     private func urlsPane(proxy: ScrollViewProxy) -> some View {
@@ -910,6 +896,10 @@ struct ContentView: View {
             ImageCache.invalidate(url)
             try? FileManager.default.removeItem(at: url)
         }
+        if item.kind == .url {
+            let raw = item.text ?? item.preview
+            LinkPreviewService.delete(urlHash: URLNormalizer.hash(raw), ctx: ctx)
+        }
         ctx.delete(item)
         try? ctx.save()
         recompute()
@@ -936,9 +926,9 @@ struct ItemRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
-            sourceIcon
-            content
-            Spacer(minLength: 8)
+            leadingBadge
+            textView
+                .frame(maxWidth: .infinity, alignment: .leading)
             if item.isFavorite {
                 Image(systemName: "star.fill")
                     .font(.caption2)
@@ -953,35 +943,55 @@ struct ItemRow: View {
         }
     }
 
-    private var sourceIcon: some View {
-        Group {
-            if let path = item.sourceAppIconPath,
-               let image = ImageCache.image(at: Storage.iconURL(for: path)) {
-                Image(nsImage: image).resizable()
-            } else {
-                Image(systemName: "app.dashed")
+    @ViewBuilder
+    private var leadingBadge: some View {
+        switch item.kind {
+        case .image:
+            if let path = item.imagePath,
+               let image = ImageCache.thumbnail(at: Storage.imageURL(for: path), maxPixelSize: 88) {
+                Image(nsImage: image)
                     .resizable()
-                    .foregroundStyle(.secondary)
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 30, height: 22)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+            } else {
+                badgeIcon(systemName: "photo")
             }
+        case .color:
+            RoundedRectangle(cornerRadius: 4)
+                .fill(ColorParser.parse(item.text ?? "")?.color ?? .gray)
+                .frame(width: 22, height: 22)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(.secondary.opacity(0.3))
+                )
+        case .code:
+            badgeIcon(systemName: "curlybraces")
+        case .url:
+            badgeIcon(systemName: "link")
+        case .text:
+            badgeIcon(systemName: "text.alignleft")
         }
-        .scaledToFit()
-        .frame(width: 24, height: 24)
+    }
+
+    private func badgeIcon(systemName: String) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
+            .frame(width: 22, height: 22)
     }
 
     @ViewBuilder
-    private var content: some View {
+    private var textView: some View {
         switch item.kind {
-        case .image:
-            imageContent
-        case .color:
-            colorContent
         case .code:
             Text(renderedText)
                 .font(.system(.body, design: .monospaced))
                 .lineLimit(1)
                 .truncationMode(.tail)
-        case .url:
+        case .color:
             Text(renderedText)
+                .font(.system(.body, design: .monospaced))
                 .lineLimit(1)
                 .truncationMode(.tail)
         default:
@@ -990,38 +1000,6 @@ struct ItemRow: View {
                 .truncationMode(.tail)
         }
     }
-
-    private var imageContent: some View {
-        HStack(spacing: 10) {
-            if let path = item.imagePath,
-               let image = ImageCache.thumbnail(at: Storage.imageURL(for: path), maxPixelSize: 88) {
-                Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 44, height: 30)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
-            }
-            Text(renderedText)
-                .lineLimit(1)
-                .truncationMode(.tail)
-        }
-    }
-
-    private var colorContent: some View {
-        HStack(spacing: 10) {
-            RoundedRectangle(cornerRadius: 4)
-                .fill(ColorParser.parse(item.text ?? "")?.color ?? .gray)
-                .frame(width: 22, height: 22)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(.secondary.opacity(0.3))
-                )
-            Text(renderedText)
-                .font(.system(.body, design: .monospaced))
-                .lineLimit(1)
-        }
-    }
-
 }
 
 struct ResizableDivider: NSViewRepresentable {
@@ -1150,23 +1128,8 @@ struct PreviewPane: View {
     }
 
     private func urlBody(for item: ClipboardItem) -> some View {
-        let raw = item.text ?? item.preview
-        return VStack(alignment: .leading, spacing: 8) {
-            if let url = URL(string: raw) {
-                Link(destination: url) {
-                    Text(raw)
-                        .font(.system(.body, design: .monospaced))
-                        .multilineTextAlignment(.leading)
-                        .foregroundStyle(.link)
-                        .underline()
-                }
-                .buttonStyle(.plain)
-            } else {
-                Text(raw).textSelection(.enabled)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
+        let raw = (item.text ?? item.preview).trimmingCharacters(in: .whitespacesAndNewlines)
+        return LinkPreviewCard(rawURL: raw)
     }
 
     private func imageBody(for item: ClipboardItem) -> some View {
@@ -1248,6 +1211,18 @@ struct PreviewPane: View {
                 Image(systemName: "star.fill")
                     .font(.caption2)
                     .foregroundStyle(.yellow)
+            }
+            if item.kind == .url {
+                Button {
+                    let raw = (item.text ?? item.preview).trimmingCharacters(in: .whitespacesAndNewlines)
+                    LinkPreviewService.shared.fetchIfNeeded(for: raw, force: true)
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Обновить превью")
             }
         }
         .padding(.horizontal, 12)

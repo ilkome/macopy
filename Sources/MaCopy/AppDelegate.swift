@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerHotKey()
         ClipboardMonitor.shared.start()
         _ = UpdaterController.shared
+        LinkPreviewService.shared.backfillPending()
     }
 
     private func setupStatusItem() {
