@@ -5,7 +5,7 @@ enum Storage {
     static let appSupportURL: URL = {
         let fm = FileManager.default
         let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = base.appendingPathComponent("ListTestSwiftUI", isDirectory: true)
+        let dir = base.appendingPathComponent("MaCopy", isDirectory: true)
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         try? fm.createDirectory(
             at: dir.appendingPathComponent("images"),

@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel = FloatingPanel()
         registerHotKey()
         ClipboardMonitor.shared.start()
+        _ = UpdaterController.shared
     }
 
     private func setupStatusItem() {
@@ -64,6 +65,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
+        let update = NSMenuItem(
+            title: "Проверить обновления",
+            action: #selector(checkForUpdates),
+            keyEquivalent: ""
+        )
+        update.target = self
+        menu.addItem(update)
+
+        menu.addItem(.separator())
+
         let quit = NSMenuItem(title: "Выход", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
@@ -75,6 +86,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func toggleOCR() {
         AppSettings.shared.ocrEnabled.toggle()
+    }
+
+    @objc private func checkForUpdates() {
+        UpdaterController.shared.checkForUpdates()
     }
 
     @objc private func quit() {

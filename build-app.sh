@@ -3,9 +3,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-APP_NAME="ListTestSwiftUI"
-BUNDLE_ID="com.ilkome.ListTestSwiftUI"
-APP_DIR="$APP_NAME.app"
+EXE_NAME="MaCopy"
+APP_DISPLAY="MaCopy by ilkome"
+BUNDLE_ID="dev.ilkome.MaCopy"
+APP_DIR="$APP_DISPLAY.app"
 CONTENTS="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS/MacOS"
 
@@ -15,7 +16,12 @@ swift build -c release
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR"
 
-cp ".build/release/$APP_NAME" "$MACOS_DIR/$APP_NAME"
+cp ".build/release/$EXE_NAME" "$MACOS_DIR/$EXE_NAME"
+
+VERSION="${APP_VERSION:-1.0}"
+BUILD="${APP_BUILD:-1}"
+FEED_URL="${SU_FEED_URL:-https://raw.githubusercontent.com/ilkome/macopy/main/appcast.xml}"
+PUBLIC_KEY="${SU_PUBLIC_ED_KEY:-}"
 
 cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -23,19 +29,19 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>$APP_NAME</string>
+    <string>$APP_DISPLAY</string>
     <key>CFBundleDisplayName</key>
-    <string>$APP_NAME</string>
+    <string>$APP_DISPLAY</string>
     <key>CFBundleIdentifier</key>
     <string>$BUNDLE_ID</string>
     <key>CFBundleExecutable</key>
-    <string>$APP_NAME</string>
+    <string>$EXE_NAME</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>$VERSION</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>$BUILD</string>
     <key>LSMinimumSystemVersion</key>
     <string>15.0</string>
     <key>LSUIElement</key>
@@ -44,11 +50,19 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <true/>
     <key>NSSupportsAutomaticGraphicsSwitching</key>
     <true/>
+    <key>SUFeedURL</key>
+    <string>$FEED_URL</string>
+    <key>SUPublicEDKey</key>
+    <string>$PUBLIC_KEY</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUEnableInstallerLauncherService</key>
+    <true/>
 </dict>
 </plist>
 PLIST
 
-SIGN_IDENTITY="ListTestSwiftUI Dev"
+SIGN_IDENTITY="MaCopy Dev"
 if security find-identity -v -p codesigning | grep -q "$SIGN_IDENTITY"; then
     codesign --force --deep --sign "$SIGN_IDENTITY" "$APP_DIR"
 else
