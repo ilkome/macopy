@@ -37,9 +37,14 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(panelMaterial.rawValue, forKey: Keys.material) }
     }
 
+    @Published var linkPreviewsEnabled: Bool {
+        didSet { UserDefaults.standard.set(linkPreviewsEnabled, forKey: Keys.linkPreviews) }
+    }
+
     private enum Keys {
         static let ocr = "ocrEnabled"
         static let material = "panelMaterial"
+        static let linkPreviews = "linkPreviewsEnabled"
     }
 
     private init() {
@@ -50,5 +55,9 @@ final class AppSettings: ObservableObject {
         self.ocrEnabled = d.bool(forKey: Keys.ocr)
         let raw = d.string(forKey: Keys.material) ?? PanelMaterial.thick.rawValue
         self.panelMaterial = PanelMaterial(rawValue: raw) ?? .thick
+        if d.object(forKey: Keys.linkPreviews) == nil {
+            d.set(true, forKey: Keys.linkPreviews)
+        }
+        self.linkPreviewsEnabled = d.bool(forKey: Keys.linkPreviews)
     }
 }

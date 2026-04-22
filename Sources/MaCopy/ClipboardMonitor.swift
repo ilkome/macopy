@@ -88,6 +88,9 @@ final class ClipboardMonitor {
         if let existing = Self.findItem(hash: hash, ctx: ctx) {
             existing.updatedAt = Date()
             try? ctx.save()
+            if kind == .url {
+                LinkPreviewService.shared.fetchIfNeeded(for: text)
+            }
             return
         }
 
@@ -107,6 +110,10 @@ final class ClipboardMonitor {
         )
         ctx.insert(item)
         try? ctx.save()
+
+        if kind == .url {
+            LinkPreviewService.shared.fetchIfNeeded(for: text)
+        }
     }
 
     private func handleImage(

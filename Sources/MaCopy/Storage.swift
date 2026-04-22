@@ -28,7 +28,7 @@ enum Storage {
 
     @MainActor
     static let container: ModelContainer = {
-        let schema = Schema([ClipboardItem.self])
+        let schema = Schema([ClipboardItem.self, LinkPreview.self])
         let url = appSupportURL.appendingPathComponent("clipboard.store")
         let config = ModelConfiguration(url: url)
         do {
