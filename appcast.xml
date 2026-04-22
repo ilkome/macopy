@@ -5,5 +5,17 @@
         <link>https://github.com/ilkome/macopy</link>
         <description>MaCopy release feed</description>
         <language>ru</language>
+        <item>
+            <title>Version 0.0.1</title>
+            <pubDate>Wed, 22 Apr 2026 16:04:49 +0000</pubDate>
+            <sparkle:version>0.0.1</sparkle:version>
+            <sparkle:shortVersionString>0.0.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <enclosure
+                url="https://github.com/ilkome/macopy/releases/download/v0.0.1/MaCopy-0.0.1.zip"
+                length="1541119"
+                type="application/octet-stream"
+                sparkle:edSignature="LLJo5WnTk3c1BYkRi6eWtUXvWWDaZTs3BQsiZknZqtFYAQEjGWmNBRhN175zA//MnuCZT846Z2mwNRY5E6qqDQ==" />
+        </item>
     </channel>
 </rss>
