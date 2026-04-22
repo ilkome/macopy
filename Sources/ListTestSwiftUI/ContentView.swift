@@ -13,6 +13,13 @@ enum Layout {
     static let splitDividerWidth: CGFloat = 6
     static let minListWidth: CGFloat = 260
     static let minPreviewWidth: CGFloat = 240
+
+    static let defaultDomainsWidth: CGFloat = 180
+    static let defaultUrlListWidth: CGFloat = 300
+    static let minDomainsWidth: CGFloat = 120
+    static let minUrlListWidth: CGFloat = 180
+    static let minUrlPreviewWidth: CGFloat = 200
+
     static var panelWidth: CGFloat {
         defaultListWidth + splitDividerWidth + defaultPreviewWidth
     }
@@ -74,6 +81,8 @@ struct ContentView: View {
     @State private var selection: Selectable?
     @State private var tab: Tab = .all
     @AppStorage("listWidth") private var listWidth: Double = Double(Layout.defaultListWidth)
+    @AppStorage("urlDomainsWidth") private var urlDomainsWidth: Double = Double(Layout.defaultDomainsWidth)
+    @AppStorage("urlListWidth") private var urlListWidth: Double = Double(Layout.defaultUrlListWidth)
     @FocusState private var searchFocused: Bool
 
     @State private var rows: [RowModel] = []
@@ -403,19 +412,32 @@ struct ContentView: View {
             let domain = Self.extractDomain(row.item) ?? "Без домена"
             groups[domain, default: []].append(row)
         }
-        let sortedDomains = groups.keys.sorted { lhs, rhs in
-            let lCount = groups[lhs]?.count ?? 0
-            let rCount = groups[rhs]?.count ?? 0
-            if lCount != rCount { return lCount > rCount }
-            let lTop = groups[lhs]?.first?.item.updatedAt ?? .distantPast
-            let rTop = groups[rhs]?.first?.item.updatedAt ?? .distantPast
+        let multi = groups.filter { $0.value.count > 1 }
+        let single = groups.filter { $0.value.count == 1 }
+        let sortedMulti = multi.keys.sorted { lhs, rhs in
+            let lc = multi[lhs]?.count ?? 0
+            let rc = multi[rhs]?.count ?? 0
+            if lc != rc { return lc > rc }
+            let lTop = multi[lhs]?.first?.item.updatedAt ?? .distantPast
+            let rTop = multi[rhs]?.first?.item.updatedAt ?? .distantPast
             return lTop > rTop
         }
-        return sortedDomains.compactMap { domain in
-            guard let arr = groups[domain], !arr.isEmpty else { return nil }
+        var sections: [Section] = sortedMulti.map { domain in
+            let arr = multi[domain]!
             let title = "\(domain) · \(arr.count)"
             return Section(id: "domain-\(domain)", title: title, rows: arr)
         }
+        if !single.isEmpty {
+            let combined = single.values.flatMap { $0 }.sorted {
+                $0.item.updatedAt > $1.item.updatedAt
+            }
+            sections.append(Section(
+                id: "domain-__other__",
+                title: "Другие · \(combined.count)",
+                rows: combined
+            ))
+        }
+        return sections
     }
 
     private static func extractDomain(_ item: ClipboardItem) -> String? {
@@ -595,15 +617,37 @@ struct ContentView: View {
     }
 
     private func urlThreePane(proxy: ScrollViewProxy) -> some View {
-        HStack(spacing: 0) {
+        let maxDomains = Layout.panelWidth
+            - Layout.splitDividerWidth * 2
+            - Layout.minUrlListWidth
+            - Layout.minUrlPreviewWidth
+        let usedForList = Layout.panelWidth
+            - Layout.splitDividerWidth * 2
+            - CGFloat(urlDomainsWidth)
+            - Layout.minUrlPreviewWidth
+        let previewWidth = Layout.panelWidth
+            - CGFloat(urlDomainsWidth)
+            - CGFloat(urlListWidth)
+            - Layout.splitDividerWidth * 2
+        return HStack(spacing: 0) {
             domainsPane(proxy: proxy)
-                .frame(width: 180)
-            Divider().opacity(0.3)
+                .frame(width: CGFloat(urlDomainsWidth))
+            ResizableDivider(
+                width: $urlDomainsWidth,
+                minWidth: Double(Layout.minDomainsWidth),
+                maxWidth: Double(maxDomains)
+            )
+            .frame(width: Layout.splitDividerWidth)
             urlsPane(proxy: proxy)
-                .frame(width: 300)
-            Divider().opacity(0.3)
+                .frame(width: CGFloat(urlListWidth))
+            ResizableDivider(
+                width: $urlListWidth,
+                minWidth: Double(Layout.minUrlListWidth),
+                maxWidth: Double(usedForList)
+            )
+            .frame(width: Layout.splitDividerWidth)
             PreviewPane(item: previewItem)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(width: max(Layout.minUrlPreviewWidth, previewWidth))
         }
     }
 
@@ -626,8 +670,9 @@ struct ContentView: View {
 
     private func domainRow(name: String, count: Int) -> some View {
         let isSelected = currentDomainName == name
+        let displayName = name == "__other__" ? "Другие" : name
         return HStack(spacing: 8) {
-            Text(name)
+            Text(displayName)
                 .font(.system(size: 13, weight: .medium))
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -655,12 +700,47 @@ struct ContentView: View {
                     placeholderPane("Выбери домен")
                 } else {
                     ForEach(rows) { row in
-                        itemRowView(row)
+                        urlPathRowView(row)
                     }
                 }
             }
         }
         .scrollIndicators(.never)
+    }
+
+    private func urlPathRowView(_ row: RowModel) -> some View {
+        let override: String = currentDomainName == "__other__"
+            ? Self.stripScheme((row.item.text ?? row.item.preview).trimmingCharacters(in: .whitespacesAndNewlines))
+            : Self.pathWithoutHost(row.item)
+        return ItemRow(model: row, displayOverride: override)
+            .id(row.id)
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) { paste(row.item) }
+            .simultaneousGesture(
+                TapGesture().onEnded { applySelection(.item(row.id)) }
+            )
+    }
+
+    private static func pathWithoutHost(_ item: ClipboardItem) -> String {
+        let raw = (item.text ?? item.preview).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: raw), url.host != nil else { return Self.stripScheme(raw) }
+        var tail = url.path
+        if let q = url.query, !q.isEmpty { tail += "?\(q)" }
+        if let f = url.fragment, !f.isEmpty { tail += "#\(f)" }
+        if tail.isEmpty || tail == "/" { return Self.stripScheme(raw) }
+        if tail.hasPrefix("/") { tail.removeFirst() }
+        return tail
+    }
+
+    private static func stripScheme(_ raw: String) -> String {
+        var s = raw
+        for prefix in ["https://", "http://", "ftp://"] where s.hasPrefix(prefix) {
+            s.removeFirst(prefix.count)
+            break
+        }
+        if s.hasPrefix("www.") { s.removeFirst(4) }
+        if s.hasSuffix("/") { s.removeLast() }
+        return s
     }
 
     private func placeholderPane(_ text: String) -> some View {
@@ -789,12 +869,16 @@ struct ContentView: View {
 
 struct ItemRow: View {
     @Bindable var model: ContentView.RowModel
+    var displayOverride: String? = nil
 
     private var item: ClipboardItem { model.item }
     private var match: ContentView.SearchMatch? { model.match }
     private var selected: Bool { model.isSelected }
 
     private var renderedText: AttributedString {
+        if let override = displayOverride {
+            return AttributedString(override.replacingOccurrences(of: "\n", with: " "))
+        }
         if let snippet = match?.snippet {
             return snippet
         }
@@ -806,13 +890,10 @@ struct ItemRow: View {
             sourceIcon
             content
             Spacer(minLength: 8)
-            HStack(spacing: 6) {
-                if item.isFavorite {
-                    Image(systemName: "star.fill")
-                        .font(.caption2)
-                        .foregroundStyle(.yellow)
-                }
-                kindBadge
+            if item.isFavorite {
+                Image(systemName: "star.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.yellow)
             }
         }
         .padding(.horizontal, 12)
@@ -853,7 +934,7 @@ struct ItemRow: View {
         case .url:
             Text(renderedText)
                 .lineLimit(1)
-                .truncationMode(.middle)
+                .truncationMode(.tail)
         default:
             Text(renderedText)
                 .lineLimit(1)
@@ -889,36 +970,6 @@ struct ItemRow: View {
             Text(renderedText)
                 .font(.system(.body, design: .monospaced))
                 .lineLimit(1)
-        }
-    }
-
-    private var kindBadge: some View {
-        Text(kindLabel)
-            .font(.system(size: 9, weight: .semibold))
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
-            .background(kindColor.opacity(0.25))
-            .foregroundStyle(kindColor)
-            .clipShape(Capsule())
-    }
-
-    private var kindLabel: String {
-        switch item.kind {
-        case .text: "TEXT"
-        case .code: "CODE"
-        case .url: "URL"
-        case .color: "COLOR"
-        case .image: "IMG"
-        }
-    }
-
-    private var kindColor: Color {
-        switch item.kind {
-        case .text: .gray
-        case .code: .purple
-        case .url: .blue
-        case .color: .orange
-        case .image: .green
         }
     }
 
