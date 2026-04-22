@@ -53,7 +53,7 @@ APPCAST_ITEM=$(cat <<ITEM
             <pubDate>$PUB_DATE</pubDate>
             <sparkle:version>$BUILD_NUMBER</sparkle:version>
             <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <enclosure
                 url="https://github.com/$REPO/releases/download/v$VERSION/$ZIP_NAME"
                 length="$SIZE"
