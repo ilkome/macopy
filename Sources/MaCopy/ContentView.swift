@@ -111,6 +111,7 @@ struct ContentView: View {
     @State private var minuteTick = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
     @State private var searchTask: Task<Void, Never>?
     @ObservedObject private var settings = AppSettings.shared
+    @ObservedObject private var uiState = UIState.shared
 
     enum Selectable: Hashable {
         case item(UUID)
@@ -213,6 +214,30 @@ struct ContentView: View {
     }
 
     var body: some View {
+        Group {
+            if uiState.showSettings {
+                SettingsView(onBack: { uiState.showSettings = false })
+            } else {
+                mainBody
+            }
+        }
+        .frame(width: Layout.panelWidth, height: Layout.panelHeight)
+        .background(settings.panelMaterial.material)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .transaction { $0.animation = nil }
+        .onAppear {
+            clampPersistedWidths()
+            recompute()
+            searchFocused = true
+        }
+        .onChange(of: uiState.showSettings) { _, isSettings in
+            if !isSettings {
+                DispatchQueue.main.async { searchFocused = true }
+            }
+        }
+    }
+
+    private var mainBody: some View {
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
                 searchField(proxy: proxy)
@@ -270,15 +295,6 @@ struct ContentView: View {
             .onReceive(minuteTick) { _ in
                 sections = buildSections(rows, query: query)
             }
-        }
-        .frame(width: Layout.panelWidth, height: Layout.panelHeight)
-        .background(settings.panelMaterial.material)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .transaction { $0.animation = nil }
-        .onAppear {
-            clampPersistedWidths()
-            recompute()
-            searchFocused = true
         }
     }
 
@@ -627,30 +643,34 @@ struct ContentView: View {
                 .padding(.vertical, 2)
                 .background(Color.secondary.opacity(0.15))
                 .clipShape(RoundedRectangle(cornerRadius: 4))
+            pinButton
             settingsMenu
         }
         .padding(.horizontal, 18)
     }
 
+    private var pinButton: some View {
+        Button {
+            settings.panelPinned.toggle()
+        } label: {
+            Image(systemName: settings.panelPinned ? "pin.fill" : "pin")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.borderless)
+        .help(settings.panelPinned ? "Открепить панель" : "Закрепить панель")
+    }
+
     private var settingsMenu: some View {
-        Menu {
-            Toggle("OCR для скриншотов", isOn: $settings.ocrEnabled)
-            Toggle("Превью ссылок", isOn: $settings.linkPreviewsEnabled)
-            Picker("Плотность фона", selection: $settings.panelMaterial) {
-                ForEach(PanelMaterial.allCases) { option in
-                    Text(option.title).tag(option)
-                }
-            }
-            Divider()
-            Button("Выход") { NSApp.terminate(nil) }
+        Button {
+            uiState.showSettings = true
         } label: {
             Image(systemName: "gearshape")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
+        .buttonStyle(.borderless)
+        .help("Настройки")
     }
 
     private func listView(proxy: ScrollViewProxy) -> some View {

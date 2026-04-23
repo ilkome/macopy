@@ -2,8 +2,8 @@ import AppKit
 import SwiftData
 import SwiftUI
 
-final class FloatingPanel: NSPanel {
-    @MainActor
+@MainActor
+final class FloatingPanel: NSPanel, NSWindowDelegate {
     init() {
         super.init(
             contentRect: NSRect(
@@ -24,6 +24,7 @@ final class FloatingPanel: NSPanel {
         isOpaque = false
         backgroundColor = .clear
         hasShadow = true
+        delegate = self
 
         let root = ContentView().modelContainer(Storage.container)
         contentView = NSHostingView(rootView: root)
@@ -31,6 +32,15 @@ final class FloatingPanel: NSPanel {
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+
+    nonisolated func windowDidResignKey(_ notification: Notification) {
+        MainActor.assumeIsolated {
+            guard !AppSettings.shared.panelPinned,
+                  !UIState.shared.showSettings
+            else { return }
+            orderOut(nil)
+        }
+    }
 }
 
 
