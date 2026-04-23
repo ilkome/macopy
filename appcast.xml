@@ -6,6 +6,18 @@
         <description>MaCopy release feed</description>
         <language>ru</language>
         <item>
+            <title>Version 0.0.4</title>
+            <pubDate>Thu, 23 Apr 2026 08:46:00 +0000</pubDate>
+            <sparkle:version>1776933953</sparkle:version>
+            <sparkle:shortVersionString>0.0.4</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure
+                url="https://github.com/ilkome/macopy/releases/download/v0.0.4/MaCopy-0.0.4.dmg"
+                length="1701373"
+                type="application/x-apple-diskimage"
+                sparkle:edSignature="+0LmKMf4U+Tvds3MuBH0GVsLPrrLxHifT3genLBTQq16qIy80vCG072k39W8zrHQjLHedegHra5BLtR6fcRHDQ==" />
+        </item>
+        <item>
             <title>Version 0.0.3</title>
             <pubDate>Wed, 22 Apr 2026 21:25:10 +0000</pubDate>
             <sparkle:version>1776893102</sparkle:version>
