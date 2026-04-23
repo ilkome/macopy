@@ -41,10 +41,15 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(linkPreviewsEnabled, forKey: Keys.linkPreviews) }
     }
 
+    @Published var panelPinned: Bool {
+        didSet { UserDefaults.standard.set(panelPinned, forKey: Keys.pinned) }
+    }
+
     private enum Keys {
         static let ocr = "ocrEnabled"
         static let material = "panelMaterial"
         static let linkPreviews = "linkPreviewsEnabled"
+        static let pinned = "panelPinned"
     }
 
     private init() {
@@ -59,5 +64,6 @@ final class AppSettings: ObservableObject {
             d.set(true, forKey: Keys.linkPreviews)
         }
         self.linkPreviewsEnabled = d.bool(forKey: Keys.linkPreviews)
+        self.panelPinned = d.bool(forKey: Keys.pinned)
     }
 }
