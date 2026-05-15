@@ -3,10 +3,45 @@ import ImageIO
 import SwiftData
 import Vision
 
-actor OCRService {
-    static let shared = OCRService()
+actor OCRConcurrencyLimiter {
+    private let maxConcurrent: Int
+    private var inUse: Int = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
 
-    func process(itemId: UUID, imagePath: String) async {
+    init(maxConcurrent: Int) {
+        self.maxConcurrent = max(1, maxConcurrent)
+    }
+
+    func acquire() async {
+        if inUse < maxConcurrent {
+            inUse += 1
+            return
+        }
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            waiters.append(cont)
+        }
+    }
+
+    func release() {
+        if let next = waiters.first {
+            waiters.removeFirst()
+            next.resume()
+        } else {
+            inUse -= 1
+        }
+    }
+}
+
+enum OCRService {
+    private static let limiter = OCRConcurrencyLimiter(maxConcurrent: 2)
+
+    static func process(itemId: UUID, imagePath: String) async {
+        await limiter.acquire()
+        await performOCR(itemId: itemId, imagePath: imagePath)
+        await limiter.release()
+    }
+
+    private static func performOCR(itemId: UUID, imagePath: String) async {
         let fileURL = Storage.imageURL(for: imagePath)
         guard let data = try? Data(contentsOf: fileURL),
               let source = CGImageSourceCreateWithData(data as CFData, nil),

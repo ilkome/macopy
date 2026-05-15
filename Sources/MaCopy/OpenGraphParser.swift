@@ -71,15 +71,41 @@ enum OpenGraphParser {
         let content: String
     }
 
+    private static let metaTagRegex: NSRegularExpression = {
+        try! NSRegularExpression(
+            pattern: "<meta\\b([^>]*)/?>",
+            options: [.caseInsensitive, .dotMatchesLineSeparators]
+        )
+    }()
+
+    private static let titleRegex: NSRegularExpression = {
+        try! NSRegularExpression(
+            pattern: "<title[^>]*>([\\s\\S]*?)</title>",
+            options: [.caseInsensitive]
+        )
+    }()
+
+    private static let attrRegexCache: [String: [NSRegularExpression]] = {
+        let keys = ["property", "name", "itemprop", "content"]
+        var dict: [String: [NSRegularExpression]] = [:]
+        for key in keys {
+            let patterns = [
+                "\(key)\\s*=\\s*\"([^\"]*)\"",
+                "\(key)\\s*=\\s*'([^']*)'",
+                "\(key)\\s*=\\s*([^\\s>]+)"
+            ]
+            dict[key] = patterns.compactMap {
+                try? NSRegularExpression(pattern: $0, options: [.caseInsensitive])
+            }
+        }
+        return dict
+    }()
+
     private static func extractMetaTags(_ head: String) -> [MetaTag] {
         var out: [MetaTag] = []
         let nsHead = head as NSString
-        guard let regex = try? NSRegularExpression(
-            pattern: "<meta\\b([^>]*)/?>",
-            options: [.caseInsensitive, .dotMatchesLineSeparators]
-        ) else { return [] }
         let range = NSRange(location: 0, length: nsHead.length)
-        regex.enumerateMatches(in: head, options: [], range: range) { match, _, _ in
+        metaTagRegex.enumerateMatches(in: head, options: [], range: range) { match, _, _ in
             guard let match, match.numberOfRanges >= 2 else { return }
             let attrs = nsHead.substring(with: match.range(at: 1))
             let name = attributeValue(attrs, key: "property")
@@ -94,16 +120,11 @@ enum OpenGraphParser {
     }
 
     private static func attributeValue(_ attrs: String, key: String) -> String? {
-        let patterns = [
-            "\(key)\\s*=\\s*\"([^\"]*)\"",
-            "\(key)\\s*=\\s*'([^']*)'",
-            "\(key)\\s*=\\s*([^\\s>]+)"
-        ]
-        for p in patterns {
-            guard let regex = try? NSRegularExpression(pattern: p, options: [.caseInsensitive])
-            else { continue }
-            let ns = attrs as NSString
-            if let m = regex.firstMatch(in: attrs, range: NSRange(location: 0, length: ns.length)),
+        guard let regexes = attrRegexCache[key] else { return nil }
+        let ns = attrs as NSString
+        let range = NSRange(location: 0, length: ns.length)
+        for regex in regexes {
+            if let m = regex.firstMatch(in: attrs, range: range),
                m.numberOfRanges >= 2 {
                 return ns.substring(with: m.range(at: 1))
             }
@@ -112,12 +133,8 @@ enum OpenGraphParser {
     }
 
     private static func extractTitle(_ head: String) -> String? {
-        guard let regex = try? NSRegularExpression(
-            pattern: "<title[^>]*>([\\s\\S]*?)</title>",
-            options: [.caseInsensitive]
-        ) else { return nil }
         let ns = head as NSString
-        guard let m = regex.firstMatch(in: head, range: NSRange(location: 0, length: ns.length)),
+        guard let m = titleRegex.firstMatch(in: head, range: NSRange(location: 0, length: ns.length)),
               m.numberOfRanges >= 2 else { return nil }
         let raw = ns.substring(with: m.range(at: 1))
         return raw.trimmingCharacters(in: .whitespacesAndNewlines)

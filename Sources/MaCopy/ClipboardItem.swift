@@ -24,6 +24,7 @@ final class ClipboardItem {
     var sourceFilePath: String?
     var byteSize: Int
     var isFavorite: Bool = false
+    var comment: String?
 
     var kind: ClipKind { ClipKind(rawValue: kindRaw) ?? .text }
 

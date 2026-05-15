@@ -124,6 +124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func hidePanel() {
+        UIState.shared.showSettings = false
         panel?.orderOut(nil)
     }
 
