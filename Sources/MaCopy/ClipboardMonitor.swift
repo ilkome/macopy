@@ -38,20 +38,22 @@ final class ClipboardMonitor {
             return
         }
 
-        if let (data, ext) = readImageData(from: pb) {
+        let types = Set(pb.types ?? [])
+        let fileURLs = (pb.readObjects(forClasses: [NSURL.self], options: nil) as? [URL]) ?? []
+
+        if let (data, ext) = readImageData(from: pb, types: types, fileURLs: fileURLs) {
             handleImage(
                 data: data,
                 ext: ext,
-                fileURL: firstFileURL(from: pb),
+                fileURL: fileURLs.first,
                 frontApp: frontApp
             )
             return
         }
 
-        if let urls = pb.readObjects(forClasses: [NSURL.self], options: nil) as? [URL],
-           !urls.isEmpty {
-            let text = urls.map { $0.path }.joined(separator: "\n")
-            handleText(text, sourceFile: urls.first?.path, frontApp: frontApp)
+        if !fileURLs.isEmpty {
+            let text = fileURLs.map { $0.path }.joined(separator: "\n")
+            handleText(text, sourceFile: fileURLs.first?.path, frontApp: frontApp)
             return
         }
 
@@ -60,22 +62,22 @@ final class ClipboardMonitor {
         }
     }
 
-    private func readImageData(from pb: NSPasteboard) -> (Data, String)? {
-        if let data = pb.data(forType: .png) { return (data, "png") }
-        if let data = pb.data(forType: .init("public.jpeg")) { return (data, "jpg") }
-        if let data = pb.data(forType: .tiff) { return (data, "tiff") }
-        if let urls = pb.readObjects(forClasses: [NSURL.self], options: nil) as? [URL],
-           let first = urls.first {
+    private func readImageData(
+        from pb: NSPasteboard,
+        types: Set<NSPasteboard.PasteboardType>,
+        fileURLs: [URL]
+    ) -> (Data, String)? {
+        if types.contains(.png), let data = pb.data(forType: .png) { return (data, "png") }
+        let jpegType = NSPasteboard.PasteboardType("public.jpeg")
+        if types.contains(jpegType), let data = pb.data(forType: jpegType) { return (data, "jpg") }
+        if types.contains(.tiff), let data = pb.data(forType: .tiff) { return (data, "tiff") }
+        if let first = fileURLs.first {
             let ext = first.pathExtension.lowercased()
             if imageExts.contains(ext), let data = try? Data(contentsOf: first) {
                 return (data, ext)
             }
         }
         return nil
-    }
-
-    private func firstFileURL(from pb: NSPasteboard) -> URL? {
-        (pb.readObjects(forClasses: [NSURL.self], options: nil) as? [URL])?.first
     }
 
     private func handleText(_ text: String, sourceFile: String?, frontApp: NSRunningApplication?) {
@@ -158,7 +160,7 @@ final class ClipboardMonitor {
         if AppSettings.shared.ocrEnabled {
             let id = item.id
             Task.detached(priority: .utility) {
-                await OCRService.shared.process(itemId: id, imagePath: filename)
+                await OCRService.process(itemId: id, imagePath: filename)
             }
         }
     }

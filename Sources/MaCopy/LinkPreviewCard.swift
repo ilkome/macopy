@@ -34,6 +34,9 @@ struct LinkPreviewCard: View {
                 LinkPreviewService.shared.fetchIfNeeded(for: rawURL)
             }
         }
+        .onChange(of: rawURL, initial: false) { oldURL, _ in
+            LinkPreviewService.shared.cancel(rawURL: oldURL)
+        }
     }
 
     @ViewBuilder

@@ -1,5 +1,6 @@
 import AppKit
 import Fuse
+import KeyboardShortcuts
 import SwiftData
 import SwiftUI
 
@@ -107,11 +108,14 @@ struct ContentView: View {
     @State private var rowsById: [UUID: RowModel] = [:]
     @State private var domainByItemID: [UUID: String] = [:]
     @State private var domainSectionsCache: [Section] = []
+    @State private var sectionsByID: [String: Section] = [:]
+    @State private var firstRowSectionID: [UUID: String] = [:]
     @State private var visibleListCache: [Selectable] = []
     @State private var minuteTick = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
     @State private var searchTask: Task<Void, Never>?
     @ObservedObject private var settings = AppSettings.shared
     @ObservedObject private var uiState = UIState.shared
+    @State private var keyMonitor: Any?
 
     enum Selectable: Hashable {
         case item(UUID)
@@ -135,9 +139,7 @@ struct ContentView: View {
         case .item(let id):
             return rowsById[id]?.item
         case .domain(let name):
-            return sections
-                .first(where: { $0.id == domainSectionPrefix + name })?
-                .rows.first?.item
+            return sectionsByID[domainSectionPrefix + name]?.rows.first?.item
         case .none:
             return nil
         }
@@ -145,6 +147,10 @@ struct ContentView: View {
 
     private var urlMode: Bool {
         tab == .urls && query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var togglePanelShortcutLabel: String? {
+        KeyboardShortcuts.getShortcut(for: .togglePanel).map { "\($0)" }
     }
 
     private var currentDomainName: String? {
@@ -156,10 +162,8 @@ struct ContentView: View {
     }
 
     private var currentDomainRows: [RowModel] {
-        guard let name = currentDomainName,
-              let section = domainSectionsCache.first(where: { $0.id == domainSectionPrefix + name })
-        else { return [] }
-        return section.rows
+        guard let name = currentDomainName else { return [] }
+        return sectionsByID[domainSectionPrefix + name]?.rows ?? []
     }
 
     private var domainSections: [Section] {
@@ -209,6 +213,18 @@ struct ContentView: View {
         let topUpdatedAt: Date?
     }
 
+    private struct ScoringInput: Sendable {
+        let id: UUID
+        let updatedAt: Date
+        let fields: [String]
+    }
+
+    private struct ScoredResult: Sendable {
+        let id: UUID
+        let score: Double
+        let snippet: AttributedString
+    }
+
     private var allItemsSignature: AllItemsSignature {
         AllItemsSignature(count: allItems.count, topUpdatedAt: allItems.first?.updatedAt)
     }
@@ -227,14 +243,72 @@ struct ContentView: View {
         .transaction { $0.animation = nil }
         .onAppear {
             clampPersistedWidths()
-            recompute()
             searchFocused = true
+            kickRecompute(forceFirst: false, debounce: false)
+            installKeyMonitor()
+        }
+        .onDisappear {
+            removeKeyMonitor()
         }
         .onChange(of: uiState.showSettings) { _, isSettings in
             if !isSettings {
                 DispatchQueue.main.async { searchFocused = true }
             }
         }
+    }
+
+    private func installKeyMonitor() {
+        guard keyMonitor == nil else { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            handlePanelKeyDown(event)
+        }
+    }
+
+    private func removeKeyMonitor() {
+        if let m = keyMonitor {
+            NSEvent.removeMonitor(m)
+            keyMonitor = nil
+        }
+    }
+
+    private func handlePanelKeyDown(_ event: NSEvent) -> NSEvent? {
+        guard event.modifierFlags.contains(.command) else { return event }
+        let shift = event.modifierFlags.contains(.shift)
+        switch event.keyCode {
+        case 2:
+            toggleFavorite()
+            return nil
+        case 14:
+            guard case .item = selection else { return event }
+            uiState.commentFocusToken &+= 1
+            return nil
+        case 51, 117:
+            if let text = NSApp.keyWindow?.firstResponder as? NSText,
+               !text.string.isEmpty {
+                return event
+            }
+            deleteSelected()
+            return nil
+        case 0:
+            return forwardAction(Selector("selectAll:"), event: event)
+        case 8:
+            return forwardAction(Selector("copy:"), event: event)
+        case 9:
+            return forwardAction(Selector("paste:"), event: event)
+        case 7:
+            return forwardAction(Selector("cut:"), event: event)
+        case 6:
+            return forwardAction(Selector(shift ? "redo:" : "undo:"), event: event)
+        default:
+            return event
+        }
+    }
+
+    private func forwardAction(_ selector: Selector, event: NSEvent) -> NSEvent? {
+        if NSApp.sendAction(selector, to: nil, from: nil) {
+            return nil
+        }
+        return event
     }
 
     private var mainBody: some View {
@@ -273,24 +347,21 @@ struct ContentView: View {
                 resetToTop(proxy: proxy)
             }
             .onChange(of: tab) { _, _ in
-                recompute(forceFirst: true)
-                if let firstSection = sections.first {
-                    proxy.scrollTo("section-\(firstSection.id)", anchor: .top)
+                kickRecompute(forceFirst: true, debounce: false) {
+                    if let firstSection = sections.first {
+                        proxy.scrollTo("section-\(firstSection.id)", anchor: .top)
+                    }
                 }
             }
             .onChange(of: query) { _, _ in
-                searchTask?.cancel()
-                searchTask = Task {
-                    try? await Task.sleep(for: .milliseconds(60))
-                    guard !Task.isCancelled else { return }
-                    let list = recompute(forceFirst: true)
-                    if !list.isEmpty, let firstSection = sections.first {
+                kickRecompute(forceFirst: true, debounce: false) {
+                    if !sections.isEmpty, let firstSection = sections.first {
                         proxy.scrollTo("section-\(firstSection.id)", anchor: .top)
                     }
                 }
             }
             .onChange(of: allItemsSignature) { _, _ in
-                recompute()
+                kickRecompute(forceFirst: false, debounce: false)
             }
             .onReceive(minuteTick) { _ in
                 sections = buildSections(rows, query: query)
@@ -312,84 +383,137 @@ struct ContentView: View {
         urlListWidth = min(maxUrlList, max(minUrlList, urlListWidth))
     }
 
-    @discardableResult
-    private func recompute(forceFirst: Bool = false) -> [RowModel] {
+    private func recomputeAsync(forceFirst: Bool = false) async {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let previousById = rowsById
-
-        func reuseOrCreate(item: ClipboardItem, match: SearchMatch?) -> RowModel {
-            if let existing = previousById[item.id] {
-                if existing.match != match {
-                    existing.match = match
-                }
-                return existing
-            }
-            return RowModel(item: item, match: match)
-        }
-
-        let built: [RowModel]
         if q.isEmpty {
-            built = allItems
-                .filter { tab.matches($0) }
-                .map { reuseOrCreate(item: $0, match: nil) }
-        } else {
-            let fuse = Fuse(location: 0, distance: 1_000_000, threshold: 0.4)
-            guard let pattern = fuse.createPattern(from: q) else {
-                rows = []
-                sections = []
-                rowsById = [:]
-                selection = nil
-                return []
+            applyEmptyQuery(forceFirst: forceFirst)
+            return
+        }
+        let currentTab = tab
+        let inputs: [ScoringInput] = allItems
+            .filter { currentTab.matches($0) }
+            .map { item in
+                var fields: [String] = []
+                if let s = item.text, !s.isEmpty {
+                    fields.append(s)
+                } else if !item.preview.isEmpty {
+                    fields.append(item.preview)
+                }
+                if let s = item.ocrText, !s.isEmpty {
+                    fields.append(s.count > 500 ? String(s.prefix(500)) : s)
+                }
+                if let s = item.comment, !s.isEmpty { fields.append(s) }
+                return ScoringInput(id: item.id, updatedAt: item.updatedAt, fields: fields)
             }
-            var scored: [(ClipboardItem, Double, AttributedString)] = []
-            for item in allItems where tab.matches(item) {
-                let fields: [String?] = [item.text, item.ocrText, item.preview, item.sourceAppName]
-                var bestScore: Double?
-                var bestField: String?
-                var bestRanges: [CountableClosedRange<Int>] = []
-                for field in fields {
-                    guard let field, !field.isEmpty else { continue }
-                    guard let r = fuse.search(pattern, in: field) else { continue }
+        let scored = await Task.detached(priority: .userInitiated) { [q, inputs] in
+            ContentView.performScoring(inputs: inputs, query: q)
+        }.value
+        if Task.isCancelled { return }
+        guard q == query.trimmingCharacters(in: .whitespacesAndNewlines),
+              currentTab == tab
+        else { return }
+        applyScored(scored, q: q, forceFirst: forceFirst)
+    }
+
+    nonisolated private static func performScoring(
+        inputs: [ScoringInput],
+        query: String
+    ) -> [ScoredResult] {
+        let fuse = Fuse(location: 0, distance: 1_000_000, threshold: 0.4)
+        guard let pattern = fuse.createPattern(from: query) else { return [] }
+        var scored: [(ScoringInput, Double, String, [CountableClosedRange<Int>])] = []
+        scored.reserveCapacity(inputs.count)
+        for input in inputs {
+            if Task.isCancelled { return [] }
+            var bestScore: Double?
+            var bestField: String?
+            var bestRanges: [CountableClosedRange<Int>] = []
+            for field in input.fields {
+                guard let r = fuse.search(pattern, in: field) else { continue }
+                if bestScore == nil || r.score < bestScore! {
+                    bestScore = r.score
+                    bestField = field
+                    bestRanges = r.ranges
+                }
+            }
+            if bestScore == nil {
+                for field in input.fields {
+                    guard let r = SubsequenceSearch.search(pattern: query, in: field) else { continue }
                     if bestScore == nil || r.score < bestScore! {
                         bestScore = r.score
                         bestField = field
                         bestRanges = r.ranges
                     }
                 }
-                if bestScore == nil {
-                    for field in fields {
-                        guard let field, !field.isEmpty else { continue }
-                        guard let r = SubsequenceSearch.search(pattern: q, in: field) else { continue }
-                        if bestScore == nil || r.score < bestScore! {
-                            bestScore = r.score
-                            bestField = field
-                            bestRanges = r.ranges
-                        }
-                    }
-                }
-                if let s = bestScore, let field = bestField, !bestRanges.isEmpty {
-                    let snippet = SearchSnippet.build(text: field, ranges: bestRanges, radius: 40)
-                    scored.append((item, s, snippet))
-                }
             }
-            scored.sort { lhs, rhs in
-                if lhs.1 != rhs.1 { return lhs.1 < rhs.1 }
-                if lhs.0.updatedAt != rhs.0.updatedAt { return lhs.0.updatedAt > rhs.0.updatedAt }
-                return lhs.0.id.uuidString < rhs.0.id.uuidString
-            }
-            built = scored.map { item, score, snippet in
-                reuseOrCreate(item: item, match: SearchMatch(score: score, snippet: snippet))
+            if let s = bestScore, let field = bestField, !bestRanges.isEmpty {
+                scored.append((input, s, field, bestRanges))
             }
         }
+        scored.sort { lhs, rhs in
+            if lhs.1 != rhs.1 { return lhs.1 < rhs.1 }
+            if lhs.0.updatedAt != rhs.0.updatedAt { return lhs.0.updatedAt > rhs.0.updatedAt }
+            return lhs.0.id.uuidString < rhs.0.id.uuidString
+        }
+        return scored.map { input, score, field, ranges in
+            let snippet = SearchSnippet.build(text: field, ranges: ranges, radius: 40)
+            return ScoredResult(id: input.id, score: score, snippet: snippet)
+        }
+    }
+
+    private func applyEmptyQuery(forceFirst: Bool) {
+        let previousById = rowsById
+        let built: [RowModel] = allItems
+            .filter { tab.matches($0) }
+            .map { item in
+                if let existing = previousById[item.id] {
+                    if existing.match != nil { existing.match = nil }
+                    return existing
+                }
+                return RowModel(item: item, match: nil)
+            }
+        applyBuilt(built, q: "", forceFirst: forceFirst)
+    }
+
+    private func applyScored(_ scored: [ScoredResult], q: String, forceFirst: Bool) {
+        let currentById: [UUID: ClipboardItem] = Dictionary(
+            uniqueKeysWithValues: allItems.map { ($0.id, $0) }
+        )
+        let previousById = rowsById
+        var built: [RowModel] = []
+        built.reserveCapacity(scored.count)
+        for r in scored {
+            guard let item = currentById[r.id] else { continue }
+            let match = SearchMatch(score: r.score, snippet: r.snippet)
+            if let existing = previousById[item.id] {
+                if existing.match != match { existing.match = match }
+                built.append(existing)
+            } else {
+                built.append(RowModel(item: item, match: match))
+            }
+        }
+        applyBuilt(built, q: q, forceFirst: forceFirst)
+    }
+
+    private func applyBuilt(_ built: [RowModel], q: String, forceFirst: Bool) {
         let newSections = buildSections(built, query: q)
         let newById = Dictionary(uniqueKeysWithValues: built.map { ($0.id, $0) })
         var newDomainByItem: [UUID: String] = [:]
         var newDomainSections: [Section] = []
-        for section in newSections where section.id.hasPrefix(domainSectionPrefix) {
-            let name = String(section.id.dropFirst(domainSectionPrefix.count))
-            newDomainSections.append(section)
-            for row in section.rows {
-                newDomainByItem[row.id] = name
+        var newSectionsByID: [String: Section] = [:]
+        var newFirstRowSectionID: [UUID: String] = [:]
+        newSectionsByID.reserveCapacity(newSections.count)
+        for section in newSections {
+            newSectionsByID[section.id] = section
+            if let firstRowID = section.rows.first?.id {
+                newFirstRowSectionID[firstRowID] = section.id
+            }
+            if section.id.hasPrefix(domainSectionPrefix) {
+                let name = String(section.id.dropFirst(domainSectionPrefix.count))
+                newDomainSections.append(section)
+                for row in section.rows {
+                    newDomainByItem[row.id] = name
+                }
             }
         }
         rows = built
@@ -397,6 +521,8 @@ struct ContentView: View {
         rowsById = newById
         domainByItemID = newDomainByItem
         domainSectionsCache = newDomainSections
+        sectionsByID = newSectionsByID
+        firstRowSectionID = newFirstRowSectionID
         let visible = visibleSelectables(sections: newSections, tab: tab, query: q)
         visibleListCache = visible
         let newSelection: Selectable?
@@ -408,7 +534,25 @@ struct ContentView: View {
             newSelection = visible.first
         }
         applySelection(newSelection)
-        return built
+    }
+
+    private func kickRecompute(forceFirst: Bool, debounce: Bool, onApplied: (@MainActor () -> Void)? = nil) {
+        searchTask?.cancel()
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if q.isEmpty && !debounce {
+            applyEmptyQuery(forceFirst: forceFirst)
+            onApplied?()
+            return
+        }
+        searchTask = Task { @MainActor in
+            if debounce {
+                try? await Task.sleep(for: .milliseconds(20))
+                if Task.isCancelled { return }
+            }
+            await recomputeAsync(forceFirst: forceFirst)
+            if Task.isCancelled { return }
+            onApplied?()
+        }
     }
 
     private func applySelection(_ new: Selectable?) {
@@ -531,9 +675,10 @@ struct ContentView: View {
         query = ""
         tab = .all
         searchFocused = true
-        recompute(forceFirst: true)
-        if let first = sections.first {
-            proxy.scrollTo("section-\(first.id)", anchor: .top)
+        kickRecompute(forceFirst: true, debounce: false) {
+            if let first = sections.first {
+                proxy.scrollTo("section-\(first.id)", anchor: .top)
+            }
         }
     }
 
@@ -614,19 +759,8 @@ struct ContentView: View {
                     }
                     return .handled
                 }
-                .onKeyPress(keys: ["d"]) { press in
-                    if press.modifiers.contains(.command) {
-                        toggleFavorite()
-                        return .handled
-                    }
-                    return .ignored
-                }
-                .onKeyPress(keys: [.delete, .deleteForward]) { press in
-                    if press.modifiers.contains(.command) {
-                        deleteSelected()
-                        return .handled
-                    }
-                    return .ignored
+                .onChange(of: uiState.searchFocusToken) { _, _ in
+                    searchFocused = true
                 }
                 .onKeyPress(.space) {
                     guard let item = selectedItem,
@@ -636,13 +770,15 @@ struct ContentView: View {
                     QuickLookController.shared.toggle(url: Storage.imageURL(for: path))
                     return .handled
                 }
-            Text("⌘4")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Color.secondary.opacity(0.15))
-                .clipShape(RoundedRectangle(cornerRadius: 4))
+            if let label = togglePanelShortcutLabel {
+                Text(label)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.secondary.opacity(0.15))
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+            }
             pinButton
             settingsMenu
         }
@@ -680,10 +816,10 @@ struct ContentView: View {
                 if groups.isEmpty {
                     emptyState
                 } else {
-                    ForEach(groups) { section in
+                    ForEach(groups, id: \.id) { section in
                         sectionHeader(section.title)
                             .id("section-\(section.id)")
-                        ForEach(section.rows) { row in
+                        ForEach(section.rows, id: \.id) { row in
                             itemRowView(row)
                         }
                     }
@@ -734,7 +870,7 @@ struct ContentView: View {
                 if domainSections.isEmpty {
                     emptyState
                 } else {
-                    ForEach(domainSections) { section in
+                    ForEach(domainSections, id: \.id) { section in
                         let name = String(section.id.dropFirst(domainSectionPrefix.count))
                         domainRow(name: name, count: section.rows.count)
                             .id("section-\(section.id)")
@@ -761,7 +897,7 @@ struct ContentView: View {
                 if rows.isEmpty {
                     placeholderPane("Выбери домен")
                 } else {
-                    ForEach(rows) { row in
+                    ForEach(rows, id: \.id) { row in
                         urlPathRowView(row)
                     }
                 }
@@ -863,8 +999,8 @@ struct ContentView: View {
     private func scrollTo(_ target: Selectable, proxy: ScrollViewProxy) {
         switch target {
         case .item(let id):
-            if let section = sections.first(where: { $0.rows.first?.id == id }) {
-                proxy.scrollTo("section-\(section.id)", anchor: .top)
+            if let sectionID = firstRowSectionID[id] {
+                proxy.scrollTo("section-\(sectionID)", anchor: .top)
             } else {
                 proxy.scrollTo(id, anchor: nil)
             }
@@ -875,7 +1011,7 @@ struct ContentView: View {
 
     private func enterDomainItems() -> Bool {
         guard case let .domain(name) = selection,
-              let section = sections.first(where: { $0.id == domainSectionPrefix + name }),
+              let section = sectionsByID[domainSectionPrefix + name],
               let first = section.rows.first
         else { return false }
         applySelection(.item(first.id))
@@ -884,11 +1020,8 @@ struct ContentView: View {
 
     private func backToDomains() -> Bool {
         guard case let .item(id) = selection,
-              let section = sections.first(where: { s in
-                  s.id.hasPrefix(domainSectionPrefix) && s.rows.contains { $0.id == id }
-              })
+              let name = domainByItemID[id]
         else { return false }
-        let name = String(section.id.dropFirst(domainSectionPrefix.count))
         applySelection(.domain(name))
         return true
     }
@@ -909,14 +1042,32 @@ struct ContentView: View {
 
     private func deleteSelected() {
         guard case let .item(id) = selection, let row = rowsById[id] else { return }
+        if let next = nextSelectionAfterDelete(itemID: id) {
+            applySelection(next)
+        }
         removeItem(row.item)
+    }
+
+    private func nextSelectionAfterDelete(itemID: UUID) -> Selectable? {
+        if urlMode {
+            let list = currentDomainRows
+            guard let idx = list.firstIndex(where: { $0.id == itemID }) else { return nil }
+            if idx + 1 < list.count { return .item(list[idx + 1].id) }
+            if idx > 0 { return .item(list[idx - 1].id) }
+            return nil
+        }
+        let visible = visibleListCache
+        guard let idx = visible.firstIndex(of: .item(itemID)) else { return nil }
+        if idx + 1 < visible.count { return visible[idx + 1] }
+        if idx > 0 { return visible[idx - 1] }
+        return nil
     }
 
     private func toggleFavorite() {
         guard case let .item(id) = selection, let row = rowsById[id] else { return }
         row.item.isFavorite.toggle()
         try? ctx.save()
-        recompute()
+        kickRecompute(forceFirst: false, debounce: false)
     }
 
     private func removeItem(_ item: ClipboardItem) {
@@ -931,7 +1082,7 @@ struct ContentView: View {
         }
         ctx.delete(item)
         try? ctx.save()
-        recompute()
+        kickRecompute(forceFirst: false, debounce: false)
     }
 }
 
@@ -965,6 +1116,12 @@ struct ItemRow: View {
             }
             textView
                 .frame(maxWidth: .infinity, alignment: .leading)
+            if let c = item.comment, !c.isEmpty {
+                Image(systemName: "text.bubble")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .help(String(c.prefix(120)))
+            }
             if item.isFavorite {
                 Image(systemName: "star.fill")
                     .font(.caption2)
@@ -1133,6 +1290,9 @@ struct PreviewPane: View {
             body(for: item)
             Spacer(minLength: 0)
             Divider().opacity(0.3)
+            CommentEditor(item: item)
+                .id(item.id)
+            Divider().opacity(0.3)
             footer(for: item)
         }
     }
@@ -1267,5 +1427,62 @@ struct PreviewPane: View {
 
     private func byteString(_ bytes: Int) -> String {
         ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+    }
+}
+
+struct CommentEditor: View {
+    @Bindable var item: ClipboardItem
+    @Environment(\.modelContext) private var ctx
+    @ObservedObject private var uiState = UIState.shared
+    @FocusState private var focused: Bool
+    @State private var draft: String
+    @State private var saveTask: Task<Void, Never>?
+
+    init(item: ClipboardItem) {
+        self._item = Bindable(wrappedValue: item)
+        self._draft = State(initialValue: item.comment ?? "")
+    }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            TextEditor(text: $draft)
+                .font(.system(size: 13))
+                .scrollContentBackground(.hidden)
+                .focused($focused)
+                .frame(minHeight: 22)
+                .fixedSize(horizontal: false, vertical: true)
+                .onKeyPress(.escape) {
+                    focused = false
+                    uiState.searchFocusToken &+= 1
+                    return .handled
+                }
+                .onChange(of: draft) { _, newValue in
+                    saveTask?.cancel()
+                    let normalized: String? = newValue.isEmpty ? nil : newValue
+                    let captured = ctx
+                    saveTask = Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(300))
+                        guard !Task.isCancelled else { return }
+                        if item.comment != normalized {
+                            item.comment = normalized
+                            try? captured.save()
+                        }
+                    }
+                }
+                .onChange(of: uiState.commentFocusToken) { _, _ in
+                    focused = true
+                }
+
+            if draft.isEmpty {
+                Text("Комментарий…")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.tertiary)
+                    .padding(.leading, 5)
+                    .padding(.top, 0)
+                    .allowsHitTesting(false)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
     }
 }

@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 final class LinkPreviewService {
     static let shared = LinkPreviewService()
 
-    private var inFlight: Set<String> = []
+    private var inFlight: [String: Task<Void, Never>] = [:]
 
     private init() {}
 
@@ -18,7 +18,10 @@ final class LinkPreviewService {
             return
         }
         let hash = URLNormalizer.hash(rawURL)
-        if inFlight.contains(hash) { return }
+        if let existing = inFlight[hash] {
+            if !force { return }
+            existing.cancel()
+        }
 
         let ctx = Storage.container.mainContext
         if let existing = Self.find(hash: hash, ctx: ctx) {
@@ -41,8 +44,12 @@ final class LinkPreviewService {
             try? ctx.save()
         }
 
-        inFlight.insert(hash)
-        Task { await self.fetch(rawURL: rawURL, hash: hash) }
+        inFlight[hash] = Task { await self.fetch(rawURL: rawURL, hash: hash) }
+    }
+
+    func cancel(rawURL: String) {
+        let hash = URLNormalizer.hash(rawURL)
+        inFlight[hash]?.cancel()
     }
 
     func backfillPending() {
@@ -63,16 +70,18 @@ final class LinkPreviewService {
     }
 
     private func fetch(rawURL: String, hash: String) async {
-        defer { inFlight.remove(hash) }
+        defer { inFlight.removeValue(forKey: hash) }
         guard let url = URLNormalizer.parse(rawURL) else {
             finalize(hash: hash, result: .failure)
             return
         }
+        if Task.isCancelled { return }
 
         async let ogTask = OpenGraphParser.fetch(url: url)
         async let lpTask = Self.fetchLPMetadata(for: url)
         let og = await ogTask
         let lp = await lpTask
+        if Task.isCancelled { return }
 
         let title = og?.title ?? lp?.title
         let summary = og?.description
@@ -86,6 +95,7 @@ final class LinkPreviewService {
             imageData = await Self.loadImage(from: provider)
         }
         let iconData = await Self.loadImage(from: lp?.iconProvider)
+        if Task.isCancelled { return }
 
         let hasAny = title != nil || summary != nil || imageData != nil || iconData != nil
         finalize(
