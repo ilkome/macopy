@@ -67,12 +67,12 @@ final class Paster {
             awaitActivation(of: prev) { [weak self] activated in
                 guard let self else { return }
                 guard activated else {
-                    Self.logger.info("paste aborted: activation timeout (pid=\(prev.processIdentifier, privacy: .public))")
+                    Self.logger.info("paste aborted: activation timeout (pid=\(prev.processIdentifier, privacy: .private))")
                     return
                 }
                 let frontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
                 guard frontPID == prev.processIdentifier else {
-                    Self.logger.info("paste aborted: frontmost mismatch (expected=\(prev.processIdentifier, privacy: .public), got=\(frontPID ?? -1, privacy: .public))")
+                    Self.logger.info("paste aborted: frontmost mismatch (expected=\(prev.processIdentifier, privacy: .private), got=\(frontPID ?? -1, privacy: .private))")
                     return
                 }
                 guard !Self.isSecureInputEnabled() else {

@@ -1,10 +1,13 @@
 import Foundation
 import GRDB
 import Combine
+import os
 
 @MainActor
 final class ClipboardStore: ObservableObject {
     static let shared = ClipboardStore()
+
+    nonisolated private static let logger = Logger(subsystem: "dev.ilkome.MaCopy", category: "storage")
 
     @Published private(set) var items: [ClipboardItemRecord] = []
     @Published private(set) var previewsByHash: [String: LinkPreviewRecord] = [:]
@@ -29,7 +32,7 @@ final class ClipboardStore: ObservableObject {
             in: AppDatabase.shared,
             scheduling: .async(onQueue: DispatchQueue.main),
             onError: { error in
-                NSLog("ClipboardStore items observation failed: \(error)")
+                Self.logger.error("items observation failed: \(error, privacy: .private)")
             },
             onChange: { [weak self] items in
                 MainActor.assumeIsolated {
@@ -46,7 +49,7 @@ final class ClipboardStore: ObservableObject {
             in: AppDatabase.shared,
             scheduling: .async(onQueue: DispatchQueue.main),
             onError: { error in
-                NSLog("ClipboardStore previews observation failed: \(error)")
+                Self.logger.error("previews observation failed: \(error, privacy: .private)")
             },
             onChange: { [weak self] all in
                 MainActor.assumeIsolated {
