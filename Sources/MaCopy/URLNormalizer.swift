@@ -46,16 +46,7 @@ enum URLNormalizer {
     }
 
     private static func isPrivateIP(_ host: String) -> Bool {
-        if host == "127.0.0.1" || host == "::1" || host == "0.0.0.0" { return true }
-        let parts = host.split(separator: ".")
-        guard parts.count == 4, let a = Int(parts[0]), let b = Int(parts[1]) else {
-            return false
-        }
-        if a == 10 { return true }
-        if a == 127 { return true }
-        if a == 192 && b == 168 { return true }
-        if a == 172 && (16...31).contains(b) { return true }
-        if a == 169 && b == 254 { return true }
-        return false
+        guard let literal = URLSafetyGate.parseIPLiteral(host) else { return false }
+        return URLSafetyGate.isBlockedAddress(literal)
     }
 }

@@ -9,18 +9,37 @@ struct OpenGraphMetadata: Sendable {
 
 enum OpenGraphParser {
     static func fetch(url: URL, timeout: TimeInterval = 6) async -> OpenGraphMetadata? {
+        guard await URLSafetyGate.validateResolved(host: url.host) == .allow else { return nil }
+
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = max(timeout, 10)
+        config.timeoutIntervalForResource = 30
+        config.urlCache = nil
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        config.httpCookieAcceptPolicy = .never
+        config.httpShouldSetCookies = false
+        config.waitsForConnectivity = false
+        config.tlsMinimumSupportedProtocolVersion = .TLSv12
+
+        let delegate = BoundedURLSessionDelegate(
+            maxBytes: 512 * 1024,
+            originalHost: url.host
+        )
+        let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+
         var request = URLRequest(url: url)
-        request.timeoutInterval = timeout
         request.setValue(
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
             forHTTPHeaderField: "User-Agent"
         )
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
 
-        let (data, response) = (try? await URLSession.shared.data(for: request)) ?? (Data(), URLResponse())
-        guard let http = response as? HTTPURLResponse, (200..<400).contains(http.statusCode) else {
-            return nil
-        }
+        guard let (data, response) = await delegate.fetch(request: request, session: session),
+              let http = response as? HTTPURLResponse,
+              (200..<400).contains(http.statusCode)
+        else { return nil }
+
         let encoding = Self.encoding(from: http, data: data)
         let slice = data.prefix(256 * 1024)
         guard let html = String(data: slice, encoding: encoding) ?? String(data: slice, encoding: .utf8)
