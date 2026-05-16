@@ -26,6 +26,15 @@ if [ -d "$SPARKLE_SRC" ]; then
     cp -R "$SPARKLE_SRC" "$FRAMEWORKS_DIR/Sparkle.framework"
 fi
 
+SQLCIPHER_SRC=".build/artifacts/sqlcipher.swift/SQLCipher/SQLCipher.xcframework/macos-arm64_x86_64/SQLCipher.framework"
+if [ -d "$SQLCIPHER_SRC" ]; then
+    rm -rf "$FRAMEWORKS_DIR/SQLCipher.framework"
+    cp -R "$SQLCIPHER_SRC" "$FRAMEWORKS_DIR/SQLCipher.framework"
+else
+    echo "✗ SQLCipher.framework not found at $SQLCIPHER_SRC" >&2
+    exit 1
+fi
+
 install_name_tool -add_rpath "@executable_path/../Frameworks" "$MACOS_DIR/$EXE_NAME" 2>/dev/null || true
 
 VERSION="${APP_VERSION:-1.0}"
@@ -98,6 +107,12 @@ if [ -d "$SPARKLE_FW" ]; then
     sign "$SPARKLE_FW"
 fi
 
+SQLCIPHER_FW="$FRAMEWORKS_DIR/SQLCipher.framework"
+if [ -d "$SQLCIPHER_FW" ]; then
+    sign "$SQLCIPHER_FW/Versions/A"
+    sign "$SQLCIPHER_FW"
+fi
+
 codesign --force --options=runtime --timestamp=none \
     --entitlements "$ENTITLEMENTS" \
     --sign "$SIGN_ARG" "$APP_DIR"
@@ -120,6 +135,12 @@ fi
 XPC_FLAGS=$(codesign -dvvv "$SPARKLE_VB/XPCServices/Installer.xpc" 2>&1 | grep '^CodeDirectory' || true)
 if ! echo "$XPC_FLAGS" | grep -q 'runtime'; then
     echo "✗ hardened runtime flag missing on Installer.xpc" >&2
+    exit 1
+fi
+
+SQLCIPHER_FLAGS=$(codesign -dvvv "$SQLCIPHER_FW" 2>&1 | grep '^CodeDirectory' || true)
+if ! echo "$SQLCIPHER_FLAGS" | grep -q 'runtime'; then
+    echo "✗ hardened runtime flag missing on SQLCipher.framework" >&2
     exit 1
 fi
 

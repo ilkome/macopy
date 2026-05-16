@@ -1,5 +1,4 @@
 import AppKit
-import SwiftData
 import SwiftUI
 
 struct DomainRow: View {
@@ -8,25 +7,23 @@ struct DomainRow: View {
     let isSelected: Bool
     let onTap: () -> Void
 
-    @Query private var previews: [LinkPreview]
+    @ObservedObject private var store = ClipboardStore.shared
 
     init(name: String, count: Int, isSelected: Bool, onTap: @escaping () -> Void) {
         self.name = name
         self.count = count
         self.isSelected = isSelected
         self.onTap = onTap
-        let host = name
-        var fetch = FetchDescriptor<LinkPreview>(
-            predicate: #Predicate { $0.hostname == host }
-        )
-        fetch.fetchLimit = 8
-        _previews = Query(fetch)
     }
 
     private var isOther: Bool { name == "__other__" }
+
     private var iconData: Data? {
-        previews.first { $0.iconData != nil }?.iconData
+        store.previewsByHash.values
+            .first(where: { $0.hostname == name && $0.iconData != nil })?
+            .iconData
     }
+
     private var displayName: String { isOther ? "Другие" : name }
 
     var body: some View {

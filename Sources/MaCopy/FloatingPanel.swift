@@ -1,5 +1,4 @@
 import AppKit
-import SwiftData
 import SwiftUI
 
 @MainActor
@@ -26,8 +25,7 @@ final class FloatingPanel: NSPanel, NSWindowDelegate {
         hasShadow = true
         delegate = self
 
-        let root = ContentView().modelContainer(Storage.container)
-        contentView = NSHostingView(rootView: root)
+        contentView = NSHostingView(rootView: ContentView())
     }
 
     override var canBecomeKey: Bool { true }

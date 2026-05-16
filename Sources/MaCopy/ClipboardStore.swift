@@ -1,0 +1,58 @@
+import Foundation
+import GRDB
+import Combine
+
+@MainActor
+final class ClipboardStore: ObservableObject {
+    static let shared = ClipboardStore()
+
+    @Published private(set) var items: [ClipboardItemRecord] = []
+    @Published private(set) var previewsByHash: [String: LinkPreviewRecord] = [:]
+    @Published private(set) var dataVersion: Int = 0
+
+    private var itemsCancellable: AnyDatabaseCancellable?
+    private var previewsCancellable: AnyDatabaseCancellable?
+    private let recentLimit = 2000
+
+    private init() {
+        startObserving()
+    }
+
+    private func startObserving() {
+        let itemsObservation = ValueObservation.tracking { [recentLimit] db in
+            try ClipboardItemRecord
+                .order(ClipboardItemRecord.Columns.updatedAt.desc)
+                .limit(recentLimit)
+                .fetchAll(db)
+        }
+        itemsCancellable = itemsObservation.start(
+            in: AppDatabase.shared,
+            scheduling: .async(onQueue: DispatchQueue.main),
+            onError: { error in
+                NSLog("ClipboardStore items observation failed: \(error)")
+            },
+            onChange: { [weak self] items in
+                MainActor.assumeIsolated {
+                    self?.items = items
+                    self?.dataVersion &+= 1
+                }
+            }
+        )
+
+        let previewsObservation = ValueObservation.tracking { db in
+            try LinkPreviewRecord.fetchAll(db)
+        }
+        previewsCancellable = previewsObservation.start(
+            in: AppDatabase.shared,
+            scheduling: .async(onQueue: DispatchQueue.main),
+            onError: { error in
+                NSLog("ClipboardStore previews observation failed: \(error)")
+            },
+            onChange: { [weak self] all in
+                MainActor.assumeIsolated {
+                    self?.previewsByHash = Dictionary(uniqueKeysWithValues: all.map { ($0.urlHash, $0) })
+                }
+            }
+        )
+    }
+}

@@ -1,12 +1,11 @@
 import Foundation
-import SwiftData
+import GRDB
 
 enum ClipKind: String, Codable, Sendable {
     case text, code, url, color, image
 }
 
-@Model
-final class ClipboardItem {
+struct ClipboardItemRecord: Codable, Identifiable, Hashable, Sendable {
     var id: UUID
     var createdAt: Date
     var updatedAt: Date
@@ -23,7 +22,7 @@ final class ClipboardItem {
     var sourceAppIconPath: String?
     var sourceFilePath: String?
     var byteSize: Int
-    var isFavorite: Bool = false
+    var isFavorite: Bool
     var comment: String?
 
     var kind: ClipKind { ClipKind(rawValue: kindRaw) ?? .text }
@@ -44,7 +43,9 @@ final class ClipboardItem {
         sourceAppName: String? = nil,
         sourceAppIconPath: String? = nil,
         sourceFilePath: String? = nil,
-        byteSize: Int = 0
+        byteSize: Int = 0,
+        isFavorite: Bool = false,
+        comment: String? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -62,5 +63,32 @@ final class ClipboardItem {
         self.sourceAppIconPath = sourceAppIconPath
         self.sourceFilePath = sourceFilePath
         self.byteSize = byteSize
+        self.isFavorite = isFavorite
+        self.comment = comment
+    }
+}
+
+extension ClipboardItemRecord: FetchableRecord, PersistableRecord {
+    static let databaseTableName = "clipboard_items"
+
+    enum Columns {
+        static let id = Column(CodingKeys.id)
+        static let createdAt = Column(CodingKeys.createdAt)
+        static let updatedAt = Column(CodingKeys.updatedAt)
+        static let contentHash = Column(CodingKeys.contentHash)
+        static let kindRaw = Column(CodingKeys.kindRaw)
+        static let text = Column(CodingKeys.text)
+        static let preview = Column(CodingKeys.preview)
+        static let imagePath = Column(CodingKeys.imagePath)
+        static let imageWidth = Column(CodingKeys.imageWidth)
+        static let imageHeight = Column(CodingKeys.imageHeight)
+        static let ocrText = Column(CodingKeys.ocrText)
+        static let sourceAppBundleId = Column(CodingKeys.sourceAppBundleId)
+        static let sourceAppName = Column(CodingKeys.sourceAppName)
+        static let sourceAppIconPath = Column(CodingKeys.sourceAppIconPath)
+        static let sourceFilePath = Column(CodingKeys.sourceFilePath)
+        static let byteSize = Column(CodingKeys.byteSize)
+        static let isFavorite = Column(CodingKeys.isFavorite)
+        static let comment = Column(CodingKeys.comment)
     }
 }

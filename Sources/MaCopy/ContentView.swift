@@ -1,7 +1,6 @@
 import AppKit
 import Fuse
 import KeyboardShortcuts
-import SwiftData
 import SwiftUI
 
 enum Layout {
@@ -60,7 +59,7 @@ enum Tab: Int, CaseIterable {
         }
     }
 
-    func matches(_ item: ClipboardItem) -> Bool {
+    func matches(_ item: ClipboardItemRecord) -> Bool {
         switch self {
         case .all: true
         case .favorites: item.isFavorite
@@ -83,16 +82,8 @@ private let otherDomainKey = "__other__"
 private let domainSectionPrefix = "domain-"
 
 struct ContentView: View {
-    @Environment(\.modelContext) private var ctx
-    @Query(ContentView.recentDescriptor) private var allItems: [ClipboardItem]
-
-    private static var recentDescriptor: FetchDescriptor<ClipboardItem> {
-        var d = FetchDescriptor<ClipboardItem>(
-            sortBy: [SortDescriptor(\ClipboardItem.updatedAt, order: .reverse)]
-        )
-        d.fetchLimit = 2000
-        return d
-    }
+    @StateObject private var store = ClipboardStore.shared
+    private var allItems: [ClipboardItemRecord] { store.items }
 
 
     @State private var query: String = ""
@@ -129,12 +120,12 @@ struct ContentView: View {
         }
     }
 
-    private var selectedItem: ClipboardItem? {
+    private var selectedItem: ClipboardItemRecord? {
         guard case let .item(id) = selection else { return nil }
         return rowsById[id]?.item
     }
 
-    private var previewItem: ClipboardItem? {
+    private var previewItem: ClipboardItemRecord? {
         switch selection {
         case .item(let id):
             return rowsById[id]?.item
@@ -172,7 +163,7 @@ struct ContentView: View {
 
     @Observable
     final class RowModel: Identifiable {
-        let item: ClipboardItem
+        var item: ClipboardItemRecord
         var match: SearchMatch?
         var isSelected: Bool = false
 
@@ -191,7 +182,7 @@ struct ContentView: View {
             return url
         }
 
-        init(item: ClipboardItem, match: SearchMatch? = nil) {
+        init(item: ClipboardItemRecord, match: SearchMatch? = nil) {
             self.item = item
             self.match = match
         }
@@ -211,6 +202,7 @@ struct ContentView: View {
     private struct AllItemsSignature: Equatable {
         let count: Int
         let topUpdatedAt: Date?
+        let dataVersion: Int
     }
 
     private struct ScoringInput: Sendable {
@@ -226,7 +218,11 @@ struct ContentView: View {
     }
 
     private var allItemsSignature: AllItemsSignature {
-        AllItemsSignature(count: allItems.count, topUpdatedAt: allItems.first?.updatedAt)
+        AllItemsSignature(
+            count: allItems.count,
+            topUpdatedAt: allItems.first?.updatedAt,
+            dataVersion: store.dataVersion
+        )
     }
 
     var body: some View {
@@ -468,6 +464,7 @@ struct ContentView: View {
             .map { item in
                 if let existing = previousById[item.id] {
                     if existing.match != nil { existing.match = nil }
+                    if existing.item != item { existing.item = item }
                     return existing
                 }
                 return RowModel(item: item, match: nil)
@@ -476,7 +473,7 @@ struct ContentView: View {
     }
 
     private func applyScored(_ scored: [ScoredResult], q: String, forceFirst: Bool) {
-        let currentById: [UUID: ClipboardItem] = Dictionary(
+        let currentById: [UUID: ClipboardItemRecord] = Dictionary(
             uniqueKeysWithValues: allItems.map { ($0.id, $0) }
         )
         let previousById = rowsById
@@ -487,6 +484,7 @@ struct ContentView: View {
             let match = SearchMatch(score: r.score, snippet: r.snippet)
             if let existing = previousById[item.id] {
                 if existing.match != match { existing.match = match }
+                if existing.item != item { existing.item = item }
                 built.append(existing)
             } else {
                 built.append(RowModel(item: item, match: match))
@@ -765,9 +763,10 @@ struct ContentView: View {
                 .onKeyPress(.space) {
                     guard let item = selectedItem,
                           item.kind == .image,
-                          let path = item.imagePath
+                          let path = item.imagePath,
+                          let url = try? ImageStore.tempPlaintextURL(for: path)
                     else { return .ignored }
-                    QuickLookController.shared.toggle(url: Storage.imageURL(for: path))
+                    QuickLookController.shared.toggle(url: url)
                     return .handled
                 }
             if let label = togglePanelShortcutLabel {
@@ -1026,7 +1025,7 @@ struct ContentView: View {
         return true
     }
 
-    private func paste(_ override: ClipboardItem? = nil) {
+    private func paste(_ override: ClipboardItemRecord? = nil) {
         if let override {
             if !Paster.shared.paste(override) { removeItem(override) }
             return
@@ -1065,24 +1064,19 @@ struct ContentView: View {
 
     private func toggleFavorite() {
         guard case let .item(id) = selection, let row = rowsById[id] else { return }
-        row.item.isFavorite.toggle()
-        try? ctx.save()
-        kickRecompute(forceFirst: false, debounce: false)
+        try? ClipboardRepository.updateFavorite(id: id, isFavorite: !row.item.isFavorite)
     }
 
-    private func removeItem(_ item: ClipboardItem) {
+    private func removeItem(_ item: ClipboardItemRecord) {
         if let path = item.imagePath {
-            let url = Storage.imageURL(for: path)
-            ImageCache.invalidate(url)
-            try? FileManager.default.removeItem(at: url)
+            ImageCache.invalidateClipboardImage(filename: path)
+            ImageStore.delete(filename: path)
         }
         if item.kind == .url {
             let raw = item.text ?? item.preview
-            LinkPreviewService.delete(urlHash: URLNormalizer.hash(raw), ctx: ctx)
+            try? ClipboardRepository.deletePreview(urlHash: URLNormalizer.hash(raw))
         }
-        ctx.delete(item)
-        try? ctx.save()
-        kickRecompute(forceFirst: false, debounce: false)
+        try? ClipboardRepository.deleteItem(id: item.id)
     }
 }
 
@@ -1091,7 +1085,7 @@ struct ItemRow: View {
     var displayOverride: String? = nil
     var showBadge: Bool = true
 
-    private var item: ClipboardItem { model.item }
+    private var item: ClipboardItemRecord { model.item }
     private var match: ContentView.SearchMatch? { model.match }
     private var selected: Bool { model.isSelected }
 
@@ -1141,7 +1135,7 @@ struct ItemRow: View {
         switch item.kind {
         case .image:
             if let path = item.imagePath,
-               let image = ImageCache.thumbnail(at: Storage.imageURL(for: path), maxPixelSize: 88) {
+               let image = ImageCache.clipboardThumbnail(filename: path, maxPixelSize: 88) {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
@@ -1262,7 +1256,7 @@ struct ResizableDivider: NSViewRepresentable {
 }
 
 struct PreviewPane: View {
-    let item: ClipboardItem?
+    let item: ClipboardItemRecord?
 
     var body: some View {
         if let item {
@@ -1285,7 +1279,7 @@ struct PreviewPane: View {
     }
 
     @ViewBuilder
-    private func content(for item: ClipboardItem) -> some View {
+    private func content(for item: ClipboardItemRecord) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             body(for: item)
             Spacer(minLength: 0)
@@ -1298,7 +1292,7 @@ struct PreviewPane: View {
     }
 
     @ViewBuilder
-    private func body(for item: ClipboardItem) -> some View {
+    private func body(for item: ClipboardItemRecord) -> some View {
         switch item.kind {
         case .image:
             imageBody(for: item)
@@ -1323,15 +1317,15 @@ struct PreviewPane: View {
         }
     }
 
-    private func urlBody(for item: ClipboardItem) -> some View {
+    private func urlBody(for item: ClipboardItemRecord) -> some View {
         let raw = (item.text ?? item.preview).trimmingCharacters(in: .whitespacesAndNewlines)
         return LinkPreviewCard(rawURL: raw)
     }
 
-    private func imageBody(for item: ClipboardItem) -> some View {
+    private func imageBody(for item: ClipboardItemRecord) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             if let path = item.imagePath,
-               let image = ImageCache.image(at: Storage.imageURL(for: path)) {
+               let image = ImageCache.clipboardImage(filename: path) {
                 Image(nsImage: image)
                     .resizable()
                     .scaledToFit()
@@ -1360,7 +1354,7 @@ struct PreviewPane: View {
         .padding(12)
     }
 
-    private func colorBody(for item: ClipboardItem) -> some View {
+    private func colorBody(for item: ClipboardItemRecord) -> some View {
         let raw = item.text ?? item.preview
         let parsed = ColorParser.parse(raw)
         return VStack(alignment: .leading, spacing: 12) {
@@ -1384,10 +1378,10 @@ struct PreviewPane: View {
         .padding(12)
     }
 
-    private func footer(for item: ClipboardItem) -> some View {
+    private func footer(for item: ClipboardItemRecord) -> some View {
         HStack(spacing: 8) {
             if let path = item.sourceAppIconPath,
-               let img = ImageCache.image(at: Storage.iconURL(for: path)) {
+               let img = ImageCache.appIcon(filename: path) {
                 Image(nsImage: img).resizable().scaledToFit().frame(width: 16, height: 16)
             }
             Text(item.sourceAppName ?? "—")
@@ -1431,15 +1425,14 @@ struct PreviewPane: View {
 }
 
 struct CommentEditor: View {
-    @Bindable var item: ClipboardItem
-    @Environment(\.modelContext) private var ctx
+    let item: ClipboardItemRecord
     @ObservedObject private var uiState = UIState.shared
     @FocusState private var focused: Bool
     @State private var draft: String
     @State private var saveTask: Task<Void, Never>?
 
-    init(item: ClipboardItem) {
-        self._item = Bindable(wrappedValue: item)
+    init(item: ClipboardItemRecord) {
+        self.item = item
         self._draft = State(initialValue: item.comment ?? "")
     }
 
@@ -1459,14 +1452,11 @@ struct CommentEditor: View {
                 .onChange(of: draft) { _, newValue in
                     saveTask?.cancel()
                     let normalized: String? = newValue.isEmpty ? nil : newValue
-                    let captured = ctx
+                    let itemId = item.id
                     saveTask = Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(300))
                         guard !Task.isCancelled else { return }
-                        if item.comment != normalized {
-                            item.comment = normalized
-                            try? captured.save()
-                        }
+                        try? ClipboardRepository.updateComment(id: itemId, comment: normalized)
                     }
                 }
                 .onChange(of: uiState.commentFocusToken) { _, _ in

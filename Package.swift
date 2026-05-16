@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.1
 import PackageDescription
 
 let package = Package(
@@ -10,7 +10,8 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/krisk/fuse-swift.git", from: "1.4.0"),
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
-        .package(url: "https://github.com/sindresorhus/KeyboardShortcuts", from: "2.0.0")
+        .package(url: "https://github.com/sindresorhus/KeyboardShortcuts", from: "2.0.0"),
+        .package(url: "https://github.com/sqlcipher/GRDB.swift.git", from: "7.10.0")
     ],
     targets: [
         .executableTarget(
@@ -18,7 +19,8 @@ let package = Package(
             dependencies: [
                 .product(name: "Fuse", package: "fuse-swift"),
                 .product(name: "Sparkle", package: "Sparkle"),
-                .product(name: "KeyboardShortcuts", package: "KeyboardShortcuts")
+                .product(name: "KeyboardShortcuts", package: "KeyboardShortcuts"),
+                .product(name: "GRDB", package: "GRDB.swift")
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6)

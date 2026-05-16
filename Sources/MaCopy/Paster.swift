@@ -18,14 +18,13 @@ final class Paster {
     private init() {}
 
     @discardableResult
-    func copyToPasteboard(_ item: ClipboardItem) -> Bool {
+    func copyToPasteboard(_ item: ClipboardItemRecord) -> Bool {
         let pb = NSPasteboard.general
         switch item.kind {
         case .image:
-            guard let path = item.imagePath else { return false }
-            let url = Storage.imageURL(for: path)
-            guard FileManager.default.fileExists(atPath: url.path),
-                  let image = NSImage(contentsOf: url),
+            guard let path = item.imagePath,
+                  let data = try? ImageStore.read(filename: path),
+                  let image = NSImage(data: data),
                   image.isValid
             else { return false }
             pb.clearContents()
@@ -39,7 +38,7 @@ final class Paster {
     }
 
     @discardableResult
-    func copyOnly(_ item: ClipboardItem) -> Bool {
+    func copyOnly(_ item: ClipboardItemRecord) -> Bool {
         guard copyToPasteboard(item) else { return false }
         didPaste = true
         AppDelegate.shared?.hidePanel()
@@ -47,7 +46,7 @@ final class Paster {
     }
 
     @discardableResult
-    func paste(_ item: ClipboardItem) -> Bool {
+    func paste(_ item: ClipboardItemRecord) -> Bool {
         guard copyToPasteboard(item) else { return false }
 
         didPaste = true

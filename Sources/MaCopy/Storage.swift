@@ -1,5 +1,4 @@
 import Foundation
-import SwiftData
 
 enum Storage {
     static let appSupportURL: URL = {
@@ -25,16 +24,4 @@ enum Storage {
     static func iconURL(for relativePath: String) -> URL {
         appSupportURL.appendingPathComponent("icons").appendingPathComponent(relativePath)
     }
-
-    @MainActor
-    static let container: ModelContainer = {
-        let schema = Schema([ClipboardItem.self, LinkPreview.self])
-        let url = appSupportURL.appendingPathComponent("clipboard.store")
-        let config = ModelConfiguration(url: url)
-        do {
-            return try ModelContainer(for: schema, configurations: config)
-        } catch {
-            fatalError("ModelContainer init failed: \(error)")
-        }
-    }()
 }

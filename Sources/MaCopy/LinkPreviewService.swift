@@ -1,6 +1,5 @@
 import AppKit
 @preconcurrency import LinkPresentation
-import SwiftData
 import UniformTypeIdentifiers
 
 @MainActor
@@ -23,25 +22,24 @@ final class LinkPreviewService {
             existing.cancel()
         }
 
-        let ctx = Storage.container.mainContext
-        if let existing = Self.find(hash: hash, ctx: ctx) {
+        if let existing = try? ClipboardRepository.findPreview(byHash: hash) {
             if !force && existing.status == .ok { return }
             if !force,
                existing.status == .failed,
                Date().timeIntervalSince(existing.fetchedAt) < 30 {
                 return
             }
-            existing.status = .pending
-            try? ctx.save()
+            var updated = existing
+            updated.status = .pending
+            try? ClipboardRepository.upsertPreview(updated)
         } else {
-            let preview = LinkPreview(
+            let preview = LinkPreviewRecord(
                 urlHash: hash,
                 url: URLNormalizer.normalize(rawURL),
                 hostname: URLNormalizer.normalizedHost(rawURL),
                 status: .pending
             )
-            ctx.insert(preview)
-            try? ctx.save()
+            try? ClipboardRepository.upsertPreview(preview)
         }
 
         inFlight[hash] = Task { await self.fetch(rawURL: rawURL, hash: hash) }
@@ -54,16 +52,12 @@ final class LinkPreviewService {
 
     func backfillPending() {
         guard AppSettings.shared.linkPreviewsEnabled else { return }
-        let ctx = Storage.container.mainContext
-        let descriptor = FetchDescriptor<ClipboardItem>(
-            predicate: #Predicate { $0.kindRaw == "url" }
-        )
-        guard let urlItems = try? ctx.fetch(descriptor) else { return }
+        guard let urlItems = try? ClipboardRepository.urlItems() else { return }
         for item in urlItems {
             let raw = item.text ?? item.preview
             guard !raw.isEmpty else { continue }
             let hash = URLNormalizer.hash(raw)
-            if Self.find(hash: hash, ctx: ctx) == nil {
+            if (try? ClipboardRepository.findPreview(byHash: hash)) == nil {
                 fetchIfNeeded(for: raw)
             }
         }
@@ -132,8 +126,7 @@ final class LinkPreviewService {
     }
 
     private func finalize(hash: String, result: FetchResult) {
-        let ctx = Storage.container.mainContext
-        guard let preview = Self.find(hash: hash, ctx: ctx) else { return }
+        guard var preview = try? ClipboardRepository.findPreview(byHash: hash) else { return }
         preview.fetchedAt = Date()
         if preview.hostname == nil {
             preview.hostname = URLNormalizer.normalizedHost(preview.url)
@@ -149,21 +142,19 @@ final class LinkPreviewService {
         case .failure:
             preview.status = .failed
         }
-        try? ctx.save()
+        try? ClipboardRepository.upsertPreview(preview)
     }
 
     private func markSkipped(_ rawURL: String) {
         let hash = URLNormalizer.hash(rawURL)
-        let ctx = Storage.container.mainContext
-        if Self.find(hash: hash, ctx: ctx) != nil { return }
-        let preview = LinkPreview(
+        if (try? ClipboardRepository.findPreview(byHash: hash)) != nil { return }
+        let preview = LinkPreviewRecord(
             urlHash: hash,
             url: URLNormalizer.normalize(rawURL),
             hostname: URLNormalizer.normalizedHost(rawURL),
             status: .skipped
         )
-        ctx.insert(preview)
-        try? ctx.save()
+        try? ClipboardRepository.upsertPreview(preview)
     }
 
     private nonisolated static func loadImage(from provider: NSItemProvider?) async -> Data? {
@@ -222,20 +213,5 @@ final class LinkPreviewService {
         }
         let rep = NSBitmapImageRep(cgImage: cg)
         return rep.representation(using: .png, properties: [:])
-    }
-
-    static func find(hash: String, ctx: ModelContext) -> LinkPreview? {
-        let needle = hash
-        var fetch = FetchDescriptor<LinkPreview>(
-            predicate: #Predicate { $0.urlHash == needle }
-        )
-        fetch.fetchLimit = 1
-        return try? ctx.fetch(fetch).first
-    }
-
-    static func delete(urlHash: String, ctx: ModelContext) {
-        guard let preview = find(hash: urlHash, ctx: ctx) else { return }
-        ctx.delete(preview)
-        try? ctx.save()
     }
 }

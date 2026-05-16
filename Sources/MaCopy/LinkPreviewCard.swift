@@ -1,23 +1,15 @@
 import AppKit
-import SwiftData
 import SwiftUI
 
 struct LinkPreviewCard: View {
     let rawURL: String
 
-    @Query private var previews: [LinkPreview]
+    @ObservedObject private var store = ClipboardStore.shared
 
-    init(rawURL: String) {
-        self.rawURL = rawURL
-        let hash = URLNormalizer.hash(rawURL)
-        var fetch = FetchDescriptor<LinkPreview>(
-            predicate: #Predicate { $0.urlHash == hash }
-        )
-        fetch.fetchLimit = 1
-        _previews = Query(fetch)
+    private var preview: LinkPreviewRecord? {
+        store.previewsByHash[URLNormalizer.hash(rawURL)]
     }
 
-    private var preview: LinkPreview? { previews.first }
     private var parsedURL: URL? { URL(string: rawURL) }
 
     var body: some View {

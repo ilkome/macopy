@@ -1,7 +1,6 @@
 import AppKit
 import CryptoKit
 import ImageIO
-import SwiftData
 
 @MainActor
 final class ClipboardMonitor {
@@ -85,11 +84,9 @@ final class ClipboardMonitor {
         let kind = ContentTypeDetector.detect(text)
         let hashInput = kind == .url ? Self.normalizeURL(text) : text
         let hash = Self.sha256(Data(hashInput.utf8))
-        let ctx = Storage.container.mainContext
 
-        if let existing = Self.findItem(hash: hash, ctx: ctx) {
-            existing.updatedAt = Date()
-            try? ctx.save()
+        if let existing = try? ClipboardRepository.findItem(byHash: hash) {
+            try? ClipboardRepository.updateUpdatedAt(id: existing.id)
             if kind == .url {
                 LinkPreviewService.shared.fetchIfNeeded(for: text)
             }
@@ -99,7 +96,7 @@ final class ClipboardMonitor {
         let preview = String(text.prefix(200))
         let iconPath = frontApp.flatMap { IconCache.savedIcon(for: $0) }
 
-        let item = ClipboardItem(
+        let item = ClipboardItemRecord(
             contentHash: hash,
             kind: kind,
             text: text,
@@ -110,8 +107,7 @@ final class ClipboardMonitor {
             sourceFilePath: sourceFile,
             byteSize: text.utf8.count
         )
-        ctx.insert(item)
-        try? ctx.save()
+        try? ClipboardRepository.insertItem(item)
 
         if kind == .url {
             LinkPreviewService.shared.fetchIfNeeded(for: text)
@@ -125,23 +121,20 @@ final class ClipboardMonitor {
         frontApp: NSRunningApplication?
     ) {
         let hash = Self.hashImage(data)
-        let ctx = Storage.container.mainContext
 
-        if let existing = Self.findItem(hash: hash, ctx: ctx) {
-            existing.updatedAt = Date()
-            try? ctx.save()
+        if let existing = try? ClipboardRepository.findItem(byHash: hash) {
+            try? ClipboardRepository.updateUpdatedAt(id: existing.id)
             return
         }
 
         let filename = "\(UUID().uuidString).\(ext)"
-        let dest = Storage.imageURL(for: filename)
-        do { try data.write(to: dest) } catch { return }
+        do { try ImageStore.write(data, filename: filename) } catch { return }
 
         let (width, height) = Self.dimensions(from: data)
         let iconPath = frontApp.flatMap { IconCache.savedIcon(for: $0) }
         let preview = fileURL?.lastPathComponent ?? "Image \(width)×\(height)"
 
-        let item = ClipboardItem(
+        let item = ClipboardItemRecord(
             contentHash: hash,
             kind: .image,
             preview: preview,
@@ -154,8 +147,7 @@ final class ClipboardMonitor {
             sourceFilePath: fileURL?.path,
             byteSize: data.count
         )
-        ctx.insert(item)
-        try? ctx.save()
+        try? ClipboardRepository.insertItem(item)
 
         if AppSettings.shared.ocrEnabled {
             let id = item.id
@@ -190,13 +182,5 @@ final class ClipboardMonitor {
 
     private static func sha256(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-    }
-
-    private static func findItem(hash: String, ctx: ModelContext) -> ClipboardItem? {
-        let needle = hash
-        let predicate = #Predicate<ClipboardItem> { $0.contentHash == needle }
-        var fetch = FetchDescriptor<ClipboardItem>(predicate: predicate)
-        fetch.fetchLimit = 1
-        return try? ctx.fetch(fetch).first
     }
 }

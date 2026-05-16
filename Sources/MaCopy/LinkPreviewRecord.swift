@@ -1,5 +1,5 @@
 import Foundation
-import SwiftData
+import GRDB
 
 enum LinkPreviewStatus: String, Codable, Sendable {
     case pending
@@ -8,9 +8,8 @@ enum LinkPreviewStatus: String, Codable, Sendable {
     case skipped
 }
 
-@Model
-final class LinkPreview {
-    @Attribute(.unique) var urlHash: String
+struct LinkPreviewRecord: Codable, Identifiable, Hashable, Sendable {
+    var urlHash: String
     var url: String
     var hostname: String?
     var title: String?
@@ -20,6 +19,8 @@ final class LinkPreview {
     var iconData: Data?
     var fetchedAt: Date
     var statusRaw: String
+
+    var id: String { urlHash }
 
     var status: LinkPreviewStatus {
         get { LinkPreviewStatus(rawValue: statusRaw) ?? .pending }
@@ -48,5 +49,22 @@ final class LinkPreview {
         self.iconData = iconData
         self.fetchedAt = fetchedAt
         self.statusRaw = status.rawValue
+    }
+}
+
+extension LinkPreviewRecord: FetchableRecord, PersistableRecord {
+    static let databaseTableName = "link_previews"
+
+    enum Columns {
+        static let urlHash = Column(CodingKeys.urlHash)
+        static let url = Column(CodingKeys.url)
+        static let hostname = Column(CodingKeys.hostname)
+        static let title = Column(CodingKeys.title)
+        static let siteName = Column(CodingKeys.siteName)
+        static let summary = Column(CodingKeys.summary)
+        static let imageData = Column(CodingKeys.imageData)
+        static let iconData = Column(CodingKeys.iconData)
+        static let fetchedAt = Column(CodingKeys.fetchedAt)
+        static let statusRaw = Column(CodingKeys.statusRaw)
     }
 }

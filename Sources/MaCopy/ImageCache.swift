@@ -17,19 +17,23 @@ enum ImageCache {
         return c
     }()
 
-    static func image(at url: URL) -> NSImage? {
-        let key = url.path as NSString
+    static func clipboardImage(filename: String) -> NSImage? {
+        let key = filename as NSString
         if let cached = imageCache.object(forKey: key) { return cached }
-        guard let img = NSImage(contentsOf: url) else { return nil }
-        let cost = img.representations.first.map { Int($0.pixelsWide * $0.pixelsHigh * 4) } ?? 0
+        guard let data = try? ImageStore.read(filename: filename),
+              let img = NSImage(data: data)
+        else { return nil }
+        let cost = img.representations.first.map { Int($0.pixelsWide * $0.pixelsHigh * 4) } ?? data.count
         imageCache.setObject(img, forKey: key, cost: cost)
         return img
     }
 
-    static func thumbnail(at url: URL, maxPixelSize: Int = 88) -> NSImage? {
-        let key = "\(url.path)|\(maxPixelSize)" as NSString
+    static func clipboardThumbnail(filename: String, maxPixelSize: Int = 88) -> NSImage? {
+        let key = "\(filename)|\(maxPixelSize)" as NSString
         if let cached = thumbnailCache.object(forKey: key) { return cached }
-        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        guard let data = try? ImageStore.read(filename: filename),
+              let src = CGImageSourceCreateWithData(data as CFData, nil)
+        else { return nil }
         let opts: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
@@ -42,10 +46,20 @@ enum ImageCache {
         return img
     }
 
-    static func invalidate(_ url: URL) {
-        imageCache.removeObject(forKey: url.path as NSString)
+    static func appIcon(filename: String) -> NSImage? {
+        let url = Storage.iconURL(for: filename)
+        let key = "icon|\(filename)" as NSString
+        if let cached = imageCache.object(forKey: key) { return cached }
+        guard let img = NSImage(contentsOf: url) else { return nil }
+        let cost = img.representations.first.map { Int($0.pixelsWide * $0.pixelsHigh * 4) } ?? 0
+        imageCache.setObject(img, forKey: key, cost: cost)
+        return img
+    }
+
+    static func invalidateClipboardImage(filename: String) {
+        imageCache.removeObject(forKey: filename as NSString)
         for size in [88, 128, 256] {
-            thumbnailCache.removeObject(forKey: "\(url.path)|\(size)" as NSString)
+            thumbnailCache.removeObject(forKey: "\(filename)|\(size)" as NSString)
         }
     }
 
