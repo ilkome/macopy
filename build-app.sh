@@ -73,11 +73,54 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 PLIST
 
 SIGN_IDENTITY="MaCopy Dev"
+ENTITLEMENTS="MaCopy.entitlements"
+
 if security find-identity -v -p codesigning | grep -q "$SIGN_IDENTITY"; then
-    codesign --force --deep --sign "$SIGN_IDENTITY" "$APP_DIR"
+    SIGN_ARG="$SIGN_IDENTITY"
 else
     echo "⚠  '$SIGN_IDENTITY' not found. Run ./setup-signing.sh once for persistent Accessibility permission. Falling back to ad-hoc."
-    codesign --force --deep --sign - "$APP_DIR"
+    SIGN_ARG="-"
+fi
+
+SPARKLE_FW="$FRAMEWORKS_DIR/Sparkle.framework"
+SPARKLE_VB="$SPARKLE_FW/Versions/B"
+
+sign() {
+    codesign --force --options=runtime --timestamp=none --sign "$SIGN_ARG" "$1"
+}
+
+if [ -d "$SPARKLE_FW" ]; then
+    sign "$SPARKLE_VB/XPCServices/Downloader.xpc"
+    sign "$SPARKLE_VB/XPCServices/Installer.xpc"
+    sign "$SPARKLE_VB/Updater.app"
+    sign "$SPARKLE_VB/Autoupdate"
+    sign "$SPARKLE_VB"
+    sign "$SPARKLE_FW"
+fi
+
+codesign --force --options=runtime --timestamp=none \
+    --entitlements "$ENTITLEMENTS" \
+    --sign "$SIGN_ARG" "$APP_DIR"
+
+echo "→ verify"
+codesign --verify --deep --strict --verbose=2 "$APP_DIR"
+
+APP_FLAGS=$(codesign -dvvv "$APP_DIR" 2>&1 | grep '^CodeDirectory' || true)
+echo "$APP_FLAGS"
+if ! echo "$APP_FLAGS" | grep -q 'runtime'; then
+    echo "✗ hardened runtime flag missing on $APP_DIR" >&2
+    exit 1
+fi
+
+if ! codesign -d --entitlements - "$APP_DIR" 2>&1 | grep -q 'disable-library-validation'; then
+    echo "✗ disable-library-validation entitlement missing on $APP_DIR" >&2
+    exit 1
+fi
+
+XPC_FLAGS=$(codesign -dvvv "$SPARKLE_VB/XPCServices/Installer.xpc" 2>&1 | grep '^CodeDirectory' || true)
+if ! echo "$XPC_FLAGS" | grep -q 'runtime'; then
+    echo "✗ hardened runtime flag missing on Installer.xpc" >&2
+    exit 1
 fi
 
 echo "→ готово: $(pwd)/$APP_DIR"
