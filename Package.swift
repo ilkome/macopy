@@ -25,6 +25,14 @@ let package = Package(
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]
+        ),
+        .testTarget(
+            name: "MaCopyTests",
+            dependencies: ["MaCopy"],
+            path: "Tests/MaCopyTests",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
         )
     ]
 )

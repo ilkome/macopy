@@ -45,11 +45,16 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(panelPinned, forKey: Keys.pinned) }
     }
 
+    @Published var filterSensitiveContent: Bool {
+        didSet { UserDefaults.standard.set(filterSensitiveContent, forKey: Keys.filterSensitive) }
+    }
+
     private enum Keys {
         static let ocr = "ocrEnabled"
         static let material = "panelMaterial"
         static let linkPreviews = "linkPreviewsEnabled"
         static let pinned = "panelPinned"
+        static let filterSensitive = "filterSensitiveContent"
     }
 
     private init() {
@@ -65,5 +70,9 @@ final class AppSettings: ObservableObject {
         }
         self.linkPreviewsEnabled = d.bool(forKey: Keys.linkPreviews)
         self.panelPinned = d.bool(forKey: Keys.pinned)
+        if d.object(forKey: Keys.filterSensitive) == nil {
+            d.set(true, forKey: Keys.filterSensitive)
+        }
+        self.filterSensitiveContent = d.bool(forKey: Keys.filterSensitive)
     }
 }

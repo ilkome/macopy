@@ -1,6 +1,7 @@
 import AppKit
 import CryptoKit
 import ImageIO
+import os
 
 @MainActor
 final class ClipboardMonitor {
@@ -9,6 +10,7 @@ final class ClipboardMonitor {
     private var lastChangeCount: Int = 0
     private var timer: Timer?
     private let imageExts: Set<String> = ["png", "jpg", "jpeg", "gif", "tiff", "bmp", "heic", "webp"]
+    private static let privacyLogger = Logger(subsystem: "dev.ilkome.MaCopy", category: "privacy.filter")
 
     private init() {}
 
@@ -57,6 +59,11 @@ final class ClipboardMonitor {
         }
 
         if let text = pb.string(forType: .string), !text.isEmpty {
+            if AppSettings.shared.filterSensitiveContent,
+               let kind = SecretDetector.detect(in: text) {
+                Self.privacyLogger.info("filtered: \(kind.rawValue, privacy: .public)")
+                return
+            }
             handleText(text, sourceFile: nil, frontApp: frontApp)
         }
     }

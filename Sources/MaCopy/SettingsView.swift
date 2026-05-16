@@ -52,6 +52,17 @@ struct SettingsView: View {
                     }
                 }
 
+                section(title: "Приватность") {
+                    Toggle(isOn: $settings.filterSensitiveContent) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Не сохранять секреты")
+                            Text("Отфильтровывает JWT, API-ключи (AWS, GitHub, Stripe, OpenAI, Anthropic, Google) и строки с высокой энтропией. В историю такие записи не попадают.")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
                 section(title: "Внешний вид") {
                     HStack {
                         Text("Плотность фона")
