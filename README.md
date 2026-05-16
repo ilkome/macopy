@@ -223,6 +223,46 @@ Then manually:
 
 Existing users get an update prompt on next launch (or via **Check for Updates**).
 
+### What if `SUPublicEDKey` is lost or compromised
+
+The Sparkle private key (in your login Keychain under service `https://sparkle-project.org`, account `ed25519`) signs every release. The matching public key is baked into every shipped `.app` and there is **no remote revocation channel**: once a user's MaCopy trusts your public key, the only way to roll the trust anchor is to ship a brand-new build with a different `SUPublicEDKey` and have them reinstall manually.
+
+#### Back up the private key (always do this before reinstalling the OS or switching machines)
+
+```bash
+security find-generic-password -s 'https://sparkle-project.org' -a 'ed25519' -w
+```
+
+This prints the private key as one base64 string. Save that string anywhere you can reliably read it back later - the specific tool does not matter, as long as the value survives a wiped disk. Do **not** commit it and do **not** leave it in plaintext on a shared volume. Without this backup, an OS reinstall permanently locks every existing user out of updates.
+
+#### Restore the key after reinstalling the OS
+
+Once the new system is up, paste the saved string back into the login Keychain:
+
+```bash
+security add-generic-password \
+  -s 'https://sparkle-project.org' \
+  -a 'ed25519' \
+  -w '<your-saved-base64-private-key>' \
+  -j 'Private key for signing Sparkle updates'
+```
+
+After that `sign_update` (and therefore `release.sh`) finds the key again and signs DMGs exactly as before - existing users never notice the reinstall happened. Verify by re-running the backup command; it should print the same string you saved.
+
+#### If the key leaks or is permanently lost
+
+1. Generate a new EdDSA pair: `/opt/homebrew/Caskroom/sparkle/*/bin/generate_keys`.
+2. Update `~/.zshrc`: `export SU_PUBLIC_ED_KEY='<new public key>'`.
+3. Bump the **major** version (e.g. `0.0.7` → `1.0.0`) and ship the new build to GitHub Releases manually. Do **not** push it through the existing `appcast.xml` - clients trust the old key and would reject the new DMG anyway.
+4. Add a Release-notes section pointing existing users at a direct download link, with a short note that auto-update is intentionally bypassed for this version.
+5. Treat the leaked key as forever burned: never reuse the public key, never resurrect the old appcast URL.
+
+#### Hardening recommendations
+
+- Move the private key out of the regular Keychain onto a YubiKey or a Smart Card slot if your workflow allows it (requires touch-confirm before each `sign_update` call).
+- Sign locally on a trusted machine; do not ship the private key to CI.
+- Keep the `release.sh` machine off any executable downloads from untrusted sources.
+
 ### Installation for other users
 
 Without a paid Apple Developer Program, the first launch triggers Gatekeeper: **"App from an unidentified developer"**. Workaround: right-click → **Open** → **Open**. After that, Sparkle updates install without further prompts.
