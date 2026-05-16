@@ -1,5 +1,7 @@
 import AppKit
 import ApplicationServices
+import Carbon.HIToolbox
+import os
 
 extension Notification.Name {
     static let clipboardPanelReset = Notification.Name("clipboardPanelReset")
@@ -8,6 +10,8 @@ extension Notification.Name {
 @MainActor
 final class Paster {
     static let shared = Paster()
+
+    private static let logger = Logger(subsystem: "dev.ilkome.MaCopy", category: "paste")
 
     var previousApp: NSRunningApplication?
     var didPaste = false
@@ -60,10 +64,28 @@ final class Paster {
         let ownPID = ProcessInfo.processInfo.processIdentifier
         if let prev = previousApp, prev.processIdentifier != ownPID, !prev.isActive {
             prev.activate(options: [])
-            awaitActivation(of: prev) { [weak self] in
-                self?.simulateCmdV()
+            awaitActivation(of: prev) { [weak self] activated in
+                guard let self else { return }
+                guard activated else {
+                    Self.logger.info("paste aborted: activation timeout (pid=\(prev.processIdentifier, privacy: .public))")
+                    return
+                }
+                let frontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+                guard frontPID == prev.processIdentifier else {
+                    Self.logger.info("paste aborted: frontmost mismatch (expected=\(prev.processIdentifier, privacy: .public), got=\(frontPID ?? -1, privacy: .public))")
+                    return
+                }
+                guard !Self.isSecureInputEnabled() else {
+                    Self.logger.info("paste aborted: secure input enabled")
+                    return
+                }
+                self.simulateCmdV()
             }
         } else {
+            guard !Self.isSecureInputEnabled() else {
+                Self.logger.info("paste aborted: secure input enabled")
+                return true
+            }
             simulateCmdV()
         }
         return true
@@ -72,16 +94,16 @@ final class Paster {
     private func awaitActivation(
         of app: NSRunningApplication,
         timeout: TimeInterval = 0.3,
-        action: @escaping @MainActor () -> Void
+        completion: @escaping @MainActor (Bool) -> Void
     ) {
         cancelActivationWait()
         let center = NSWorkspace.shared.notificationCenter
         let targetPID = app.processIdentifier
 
-        let fire: @MainActor () -> Void = { [weak self] in
+        let finish: @MainActor (Bool) -> Void = { [weak self] activated in
             guard let self else { return }
             self.cancelActivationWait()
-            action()
+            completion(activated)
         }
 
         activationObserver = center.addObserver(
@@ -93,12 +115,16 @@ final class Paster {
                 .userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
                   running.processIdentifier == targetPID
             else { return }
-            MainActor.assumeIsolated { fire() }
+            MainActor.assumeIsolated { finish(true) }
         }
 
-        let work = DispatchWorkItem { MainActor.assumeIsolated { fire() } }
+        let work = DispatchWorkItem { MainActor.assumeIsolated { finish(false) } }
         activationTimer = work
         DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: work)
+    }
+
+    private static func isSecureInputEnabled() -> Bool {
+        IsSecureEventInputEnabled()
     }
 
     private func cancelActivationWait() {
