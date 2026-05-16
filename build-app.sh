@@ -10,6 +10,15 @@ APP_DIR="$APP_DISPLAY.app"
 CONTENTS="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS/MacOS"
 
+if [ -z "${SU_PUBLIC_ED_KEY:-}" ]; then
+    echo "✗ SU_PUBLIC_ED_KEY is not set." >&2
+    echo "  Sparkle requires the public half of your EdDSA key pair to verify updates." >&2
+    echo "  Building without it would ship an app that can only be updated by whoever holds the default" >&2
+    echo "  private key - i.e. no one. See README.md -> 'Releases and auto-update (Sparkle)'." >&2
+    echo "  Run: export SU_PUBLIC_ED_KEY='<your public key>' (consider adding it to ~/.zshrc)." >&2
+    exit 1
+fi
+
 echo "→ swift build -c release"
 swift build -c release
 
@@ -40,7 +49,7 @@ install_name_tool -add_rpath "@executable_path/../Frameworks" "$MACOS_DIR/$EXE_N
 VERSION="${APP_VERSION:-1.0}"
 BUILD="${APP_BUILD:-1}"
 FEED_URL="${SU_FEED_URL:-https://raw.githubusercontent.com/ilkome/macopy/main/appcast.xml}"
-PUBLIC_KEY="${SU_PUBLIC_ED_KEY:-ACtaihbc3SKKgsYkJ9QLAbZWA8ENfBiyjGaZUwP+Fac=}"
+PUBLIC_KEY="$SU_PUBLIC_ED_KEY"
 
 cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

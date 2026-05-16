@@ -198,6 +198,8 @@ Sparkle is integrated: the app polls `appcast.xml`, compares versions and downlo
    ```
    (drop it into `.zshrc` to avoid re-exporting)
 
+> `build-app.sh` refuses to build if `SU_PUBLIC_ED_KEY` is unset — there is no default. Shipping the app without the public key that matches your private key would produce binaries that can never be updated through Sparkle.
+
 ### Feed URL
 
 `SUFeedURL` defaults to `https://raw.githubusercontent.com/ilkome/macopy/main/appcast.xml`. Override via env: `SU_FEED_URL=https://... ./build-app.sh`.

@@ -198,6 +198,8 @@ Sparkle интегрирован: приложение проверяет `appca
    ```
    (чтобы не прописывать каждый раз — положи в `.zshrc`)
 
+> `build-app.sh` падает, если `SU_PUBLIC_ED_KEY` не выставлена — дефолта нет. Сборка без публичного ключа, парного к твоему приватному, даст бинарник, который через Sparkle никем уже не обновится.
+
 ### Feed URL
 
 По умолчанию `SUFeedURL` = `https://raw.githubusercontent.com/ilkome/macopy/main/appcast.xml`. Изменить через env: `SU_FEED_URL=https://... ./build-app.sh`.
