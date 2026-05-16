@@ -12,6 +12,29 @@ final class ClipboardMonitor {
     private let imageExts: Set<String> = ["png", "jpg", "jpeg", "gif", "tiff", "bmp", "heic", "webp"]
     private static let privacyLogger = Logger(subsystem: "dev.ilkome.MaCopy", category: "privacy.filter")
 
+    private static let allowedImageRoots: [String] = {
+        let fm = FileManager.default
+        let dirs: [FileManager.SearchPathDirectory] = [
+            .documentDirectory, .desktopDirectory, .downloadsDirectory, .picturesDirectory
+        ]
+        return dirs.compactMap { dir in
+            (try? fm.url(for: dir, in: .userDomainMask, appropriateFor: nil, create: false))?
+                .resolvingSymlinksInPath().standardizedFileURL.path
+        }
+    }()
+
+    static func isAllowedImageFileURL(_ url: URL, allowedRoots: [String]? = nil) -> Bool {
+        guard url.isFileURL else { return false }
+        let resolved = url.resolvingSymlinksInPath().standardizedFileURL.path
+        let roots = allowedRoots ?? allowedImageRoots
+        for root in roots {
+            if resolved == root || resolved.hasPrefix(root + "/") {
+                return true
+            }
+        }
+        return false
+    }
+
     private init() {}
 
     func start() {
@@ -79,7 +102,12 @@ final class ClipboardMonitor {
         if types.contains(.tiff), let data = pb.data(forType: .tiff) { return (data, "tiff") }
         if let first = fileURLs.first {
             let ext = first.pathExtension.lowercased()
-            if imageExts.contains(ext), let data = try? Data(contentsOf: first) {
+            guard imageExts.contains(ext) else { return nil }
+            guard Self.isAllowedImageFileURL(first) else {
+                Self.privacyLogger.info("rejected: file image outside allowed roots")
+                return nil
+            }
+            if let data = try? Data(contentsOf: first) {
                 return (data, ext)
             }
         }

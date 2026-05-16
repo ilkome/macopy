@@ -4,7 +4,9 @@ import AppKit
 enum IconCache {
     static func savedIcon(for app: NSRunningApplication) -> String? {
         guard let bundleId = app.bundleIdentifier, let icon = app.icon else { return nil }
-        let filename = "\(bundleId).png"
+        let safeBundleId = sanitize(bundleId)
+        guard !safeBundleId.isEmpty else { return nil }
+        let filename = "\(safeBundleId).png"
         let url = Storage.iconURL(for: filename)
 
         if FileManager.default.fileExists(atPath: url.path) {
@@ -24,5 +26,15 @@ enum IconCache {
 
         try? data.write(to: url)
         return filename
+    }
+
+    static func sanitize(_ bundleId: String) -> String {
+        let mapped = bundleId.unicodeScalars.map { scalar -> Character in
+            let v = scalar.value
+            let isAlnum = (v >= 0x30 && v <= 0x39) || (v >= 0x41 && v <= 0x5A) || (v >= 0x61 && v <= 0x7A)
+            let isDotOrDash = scalar == "." || scalar == "-"
+            return (isAlnum || isDotOrDash) ? Character(scalar) : "_"
+        }
+        return String(mapped.prefix(200))
     }
 }
