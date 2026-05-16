@@ -1,235 +1,232 @@
+**English** | [Русский](./README.ru.md)
+
 # MaCopy by ilkome
 
-Менеджер буфера обмена для macOS. Живёт в строке меню, глобальная комбинация **⌘4** открывает плавающую панель с историей.
+A clipboard manager for macOS. Lives in the menu bar; a global hotkey (default **⌘`**, customizable) opens a floating panel with the history.
 
-## Требования
+## Requirements
 
-- macOS 14 Sonoma или новее
+- macOS 14 Sonoma or newer
 - Swift 6 toolchain (Xcode 16+)
 
-## Сборка
+## Build
 
-Для работы с Accessibility (автоматическая симуляция ⌘V) приложение должно быть в `.app`-бандле:
+Accessibility (for automatic ⌘V simulation) requires the binary to be inside an `.app` bundle:
 
 ```bash
 ./build-app.sh
 ```
 
-Создаст `MaCopy by ilkome.app` рядом с `Package.swift`. Скрипт:
-- собирает release-бинарь
-- пакует в `.app` со стабильным bundle id `dev.ilkome.MaCopy`
-- подписывает приложение (см. раздел "Подпись" ниже)
+Produces `MaCopy by ilkome.app` next to `Package.swift`. The script:
+- builds a release binary
+- packages it into an `.app` with a stable bundle id `dev.ilkome.MaCopy`
+- code-signs the bundle (see "Signing" below)
 
-### Подпись и постоянный Accessibility permission
+### Signing and persistent Accessibility permission
 
-Без платного Apple Developer Program можно создать self-signed сертификат - разрешение Accessibility будет сохраняться между пересборками, TCC запоминает permission по стабильной designated requirement сертификата.
+Without a paid Apple Developer Program you can create a self-signed certificate — Accessibility permission will then persist across rebuilds, because TCC keys it to the stable designated requirement of the certificate.
 
-Однократная настройка:
+One-time setup:
 
 ```bash
 ./setup-signing.sh
 ```
 
-Создаст сертификат `MaCopy Dev` в login keychain (trust scope ограничен только code signing). После этого:
+Creates a `MaCopy Dev` certificate in the login keychain (trust scope limited to code signing). After that:
 
-1. `./build-app.sh` будет подписывать этим сертификатом
-2. Один раз выдай Accessibility: **Системные настройки → Приватность и безопасность → Универсальный доступ**, добавь `.app` и включи тумблер
-3. Последующие `build-app.sh` переиспользуют тот же permission
+1. `./build-app.sh` signs with it
+2. Grant Accessibility once: **System Settings → Privacy & Security → Accessibility**, add the `.app` and toggle it on
+3. Subsequent `build-app.sh` runs reuse the same permission
 
-Если сертификата нет - скрипт упадёт на ad-hoc подпись (permission будет сбрасываться на каждой пересборке).
+If the certificate is missing the script falls back to ad-hoc signing (permission resets on every rebuild).
 
-Удаление сертификата:
+Remove the certificate:
 ```bash
 security delete-identity -c "MaCopy Dev"
 ```
 
-## Запуск
+## Run
 
 ```bash
 open MaCopy by ilkome.app
 ```
 
-Или двойным кликом в Finder. В строке меню появится 📋.
+Or double-click in Finder. A 📋 icon appears in the menu bar.
 
-### Первый запуск - Accessibility permission
+### First launch — Accessibility permission
 
-При первой попытке вставки macOS покажет запрос доступа. Если не показал:
+On the first paste attempt macOS shows a permission prompt. If it doesn't:
 
-1. **Системные настройки → Приватность и безопасность → Универсальный доступ**
-2. `+`, выбери `MaCopy by ilkome.app`
-3. Включи тумблер напротив
+1. **System Settings → Privacy & Security → Accessibility**
+2. `+`, select `MaCopy by ilkome.app`
+3. Toggle it on
 
-Без этого разрешения содержимое копируется в буфер, но автоматического ⌘V не будет.
+Without this permission content is still copied to the pasteboard, but the automatic ⌘V simulation won't fire.
 
-## Управление
+## Controls
 
-### Глобально
+### Global
 
-- **⌘4** — показать/скрыть панель (панель всплывает поверх, не забирает фокус у активного окна)
+- **⌘`** (default, configurable in Settings) — show/hide panel. The panel floats above other windows and does not steal focus from the active app
 
-### В открытой панели
+### Inside the panel
 
-- **↑ / ↓** — навигация по списку
-- **Enter** — вставить выделенный элемент в то окно, которое было активно до открытия панели
-- **Двойной клик** — вставить
-- **Esc** — скрыть панель
-- **⌘⌫** — удалить элемент из истории
-- **Ввод в поле поиска** — фильтрация
+- **↑ / ↓** — navigate the list
+- **← / →** — switch tabs (Favorites / All / URLs / Images / Colors / Code)
+- **Enter** — paste the selected item into the window that was active before the panel opened
+- **⇧+Enter** — copy to pasteboard without pasting
+- **Double click** — paste
+- **Esc** — hide the panel
+- **⌘⌫** — delete the selected item from history (when the search/comment field is empty; otherwise the standard "delete to start of line" applies)
+- **⌘D** — toggle favorite
+- **⌘E** — focus the comment field of the selected item
+- **Space** — Quick Look for images
+- **Typing in the search field** — fuzzy filter
+- **Pin button** — pin the panel so it doesn't close on focus loss
 
-### Меню статус-бара
+### Status bar menu
 
-Правый клик (или Ctrl+клик) по 📋:
+Right-click (or Ctrl+click) the 📋 icon:
 
-- **OCR для скриншотов** — вкл/выкл распознавание текста на картинках
-- **Очистить историю** — удалить все элементы
-- **Выход**
+- **Settings…** — open the settings screen inside the panel
+- **Check for Updates** — manual Sparkle trigger
+- **Quit**
 
-## Функциональность
+OCR, link previews, background material and the global hotkey are configured in **Settings** (reachable via the menu or the gear icon inside the panel).
 
-### Захват
+## Features
 
-Polling `NSPasteboard.changeCount` каждые 300мс. Для каждого нового копирования сохраняется:
-- содержимое (текст или PNG)
-- источник: bundle id, имя и иконка приложения, из которого скопировано
-- для файлов - путь
+### Capture
+
+Polls `NSPasteboard.changeCount` every 300ms. Each new copy stores:
+- content (text or PNG)
+- source: bundle id, name and icon of the originating app
+- file path for file copies
 - timestamp
 
-### Игнорирование приватных данных
+### Private data filtering
 
-Пропускаются элементы с типами `org.nspasteboard.ConcealedType`, `AutoGeneratedType`, `TransientType` (стандарт pasteboard.org, уважают 1Password/Bitwarden и т.д.), а также специфичные типы от 1Password и Bitwarden.
+Items with `org.nspasteboard.ConcealedType`, `AutoGeneratedType` or `TransientType` (pasteboard.org standard, honored by 1Password / Bitwarden / etc.) and 1Password/Bitwarden-specific types are skipped.
 
-### Типизация
+### Type detection
 
-Автоматически определяется:
+Automatically derived:
 
-| Тип    | Как определяется                                                         |
-|--------|--------------------------------------------------------------------------|
-| URL    | Валидный `URL` со схемой http/https/ftp/file и host'ом                   |
-| Color  | Hex (#fff, #ffffff, с/без `#`, 3/4/6/8 символов) или rgb()/rgba()/hsl()  |
-| Code   | Эвристика: ключевые слова, плотность символов `{};()=<>`, отступы        |
-| Image  | `.tiff`/`.png`/etc в pasteboard или file URL на картинку                 |
-| Text   | Всё остальное                                                            |
+| Kind   | Detection                                                                  |
+|--------|----------------------------------------------------------------------------|
+| URL    | Valid `URL` with an http/https/ftp/file scheme and a host                  |
+| Color  | Hex (#fff, #ffffff, with/without `#`, 3/4/6/8 chars) or rgb()/rgba()/hsl() |
+| Code   | Heuristic: keywords, density of `{};()=<>`, indentation                    |
+| Image  | `.tiff`/`.png`/etc on the pasteboard, or a file URL pointing to an image   |
+| Text   | Everything else                                                            |
 
-### Дедупликация
+### Deduplication
 
-SHA-256 от содержимого. Повторное копирование того же не дублирует запись, а обновляет `updatedAt` - элемент всплывает наверх истории.
+SHA-256 of the content. Re-copying the same value does not insert a duplicate — it updates `updatedAt` so the entry floats to the top of the history.
 
-### Хранение
+### Storage
 
-Локально в `~/Library/Application Support/MaCopy/`:
-- `clipboard.store` - SwiftData SQLite-база (метаданные, OCR, хеши, превью)
-- `images/<uuid>.png` - полноразмерные картинки
-- `icons/<bundle-id>.png` - кэш иконок приложений-источников
+Local, under `~/Library/Application Support/MaCopy/`:
+- `clipboard.store` — SwiftData SQLite database (metadata, OCR, hashes, link previews)
+- `images/<uuid>.png` — full-resolution images
+- `icons/<bundle-id>.png` — cache of source app icons
 
-Лимита на количество элементов нет.
+No cap on the number of entries.
 
-### Поиск
+### Search
 
-Регистронезависимый по `preview`, полному тексту, OCR-тексту скриншотов и имени приложения-источника.
+Case-insensitive, runs across `preview`, full text, OCR text from screenshots and the source app name.
 
 ### OCR
 
-`Vision.VNRecognizeTextRequest`, языки `ru-RU` + `en-US`, уровень `.accurate`. Работает в background-actor, результат пишется в модель и сразу доступен для поиска. Включается по умолчанию, тумблер в меню.
+`Vision.VNRecognizeTextRequest` with languages `ru-RU` + `en-US` at `.accurate` level. A 2-task concurrency limiter (`OCRConcurrencyLimiter`) keeps one large image from blocking others. Results are written back to the model and immediately searchable. Toggle in Settings.
 
-### Вставка
+### Link previews
 
-1. Записать содержимое в `NSPasteboard.general`
-2. Скрыть панель (`orderOut`)
-3. Активировать ранее активное приложение (`NSRunningApplication.activate`)
-4. Через 80мс симулировать `⌘V` через `CGEvent.post(tap: .cghidEventTap)`
-5. Если картинка битая / файл пропал - элемент удаляется из истории
+For URL entries the title, description and image are fetched (`OpenGraphParser` + `LPLinkMetadata`). In-flight fetches cancel when the user switches to another URL. Toggle in Settings.
 
-### Фокус
+### Comments and favorites
 
-`NSPanel` со стилем `.nonactivatingPanel` + activation policy `.accessory` + отсутствие `NSApp.activate()` при показе - панель получает ввод (текст в поиск, стрелки), но активное приложение не меняется. Курсор остаётся в исходном поле, и ⌘V вставляется именно туда.
+Every item can carry a freeform comment (searched alongside the main content) and be marked as a favorite (separate tab).
 
-## Структура проекта
+### Paste
 
-```
-Package.swift
-build-app.sh                         — сборка .app-бандла
-Sources/MaCopy/
-  AppDelegate.swift                  — status item, ⌘4 hotkey, меню
-  FloatingPanel.swift                — NSPanel + NSVisualEffectView
-  ContentView.swift                  — SwiftUI: поиск + список
-  ClipboardItem.swift                — SwiftData @Model
-  Storage.swift                      — пути + ModelContainer
-  AppSettings.swift                  — UserDefaults (OCR)
-  PrivacyFilter.swift                — фильтр приватных типов pasteboard
-  ContentTypeDetector.swift          — определение URL/Color/Code/Text
-  IconCache.swift                    — кэш иконок приложений
-  ClipboardMonitor.swift             — pasteboard polling + дедуп
-  OCRService.swift                   — Vision actor
-  Paster.swift                       — запись в pasteboard + симуляция ⌘V
-```
+1. Write content into `NSPasteboard.general`
+2. Hide the panel (`orderOut`)
+3. Activate the previously-active app (`NSRunningApplication.activate`)
+4. After 80ms simulate `⌘V` via `CGEvent.post(tap: .cghidEventTap)`
+5. If the image is corrupt / the file is missing, the entry is removed from history
 
-## Стек
+### Focus
 
-- **SwiftUI + AppKit** - UI, NSPanel, NSHostingView, Carbon для глобального хоткея
-- **SwiftData** - персистентность с живым `@Query`
-- **Vision** - on-device OCR, без сети
-- **CryptoKit** - SHA-256 для дедупа
-- **CGEvent** - симуляция нажатия ⌘V
-- **ApplicationServices** - `AXIsProcessTrusted` для проверки Accessibility
+`NSPanel` with `.nonactivatingPanel` style + `.accessory` activation policy + no `NSApp.activate()` on show — the panel receives input (search text, arrow keys) without changing the active app. The caret stays in the original text field, so ⌘V lands there.
+
+## Stack
+
+- **SwiftUI + AppKit** — UI, NSPanel, NSHostingView
+- **KeyboardShortcuts** — customizable global hotkey
+- **SwiftData** — persistence with live `@Query`
+- **Vision** — on-device OCR, no network
+- **CryptoKit** — SHA-256 for deduplication
+- **CGEvent** — synthetic ⌘V keystroke
+- **ApplicationServices** — `AXIsProcessTrusted` for Accessibility checks
 
 Swift 6 strict concurrency, macOS 14+ only.
 
-## Остановка
+## Shutdown
 
-Пункт **Выход** в меню статус-бара, или:
+Use the **Quit** item in the status bar menu, or:
 
 ```bash
 pkill -x MaCopy
 ```
 
-## Релизы и авто-обновления (Sparkle)
+## Releases and auto-update (Sparkle)
 
-Sparkle интегрирован: приложение проверяет `appcast.xml`, сравнивает версии и скачивает обновления. Меню → **Проверить обновления** — ручной триггер.
+Sparkle is integrated: the app polls `appcast.xml`, compares versions and downloads updates. **Check for Updates** in the menu is the manual trigger.
 
-### Одноразовая настройка ключей
+### One-time key setup
 
 1. `brew install --cask sparkle`
-2. Сгенерировать EdDSA-пару (приватный ключ уходит в Keychain, публичный — в stdout):
+2. Generate an EdDSA key pair (private key goes into the Keychain, public key prints to stdout):
    ```bash
    /opt/homebrew/Caskroom/sparkle/$(ls /opt/homebrew/Caskroom/sparkle | head -1)/bin/generate_keys
    ```
-3. Скопировать публичный ключ из вывода, экспортнуть:
+3. Export the public key so the build picks it up:
    ```bash
    export SU_PUBLIC_ED_KEY='<public key>'
    ```
-   (чтобы не прописывать каждый раз — положи в `.zshrc`)
+   (drop it into `.zshrc` to avoid re-exporting)
 
 ### Feed URL
 
-По умолчанию `SUFeedURL` = `https://raw.githubusercontent.com/ilkome/macopy/main/appcast.xml`. Изменить через env: `SU_FEED_URL=https://... ./build-app.sh`.
+`SUFeedURL` defaults to `https://raw.githubusercontent.com/ilkome/macopy/main/appcast.xml`. Override via env: `SU_FEED_URL=https://... ./build-app.sh`.
 
-### Выпуск новой версии
+### Cutting a new release
 
 ```bash
 ./release.sh 1.0.1
 ```
 
-Скрипт:
-1. Соберёт `.app` с нужной версией (`APP_VERSION=1.0.1`)
-2. Упакует в zip через `ditto`
-3. Подпишет EdDSA (`sign_update`)
-4. Напечатает готовый `<item>` для `appcast.xml`
+The script:
+1. Builds the `.app` with the given version (`APP_VERSION=1.0.1`)
+2. Packages it into a DMG via `hdiutil` (with an `/Applications` shortcut)
+3. Signs it with EdDSA (`sign_update`)
+4. Prints a ready `<item>` block for `appcast.xml`
 
-Дальше вручную:
-- Вставь `<item>` в `appcast.xml` внутри `<channel>`
-- `gh release create v1.0.1 release-artifacts/1.0.1/MaCopy-1.0.1.zip --title "v1.0.1" --notes "..."`
-- `git add appcast.xml && git commit -m 'release 1.0.1' && git push`
+Then manually:
+- Paste the `<item>` into `appcast.xml` inside `<channel>`
+- `gh release create v1.0.1 release-artifacts/1.0.1/MaCopy-1.0.1.dmg --title "v1.0.1" --notes "..."`
+- `git add appcast.xml && git commit -m 'chore: bump version to 1.0.1' && git push`
 
-Пользователи получат уведомление об обновлении при следующем запуске (или через "Проверить обновления").
+Existing users get an update prompt on next launch (or via **Check for Updates**).
 
-### Установка другими пользователями
+### Installation for other users
 
-Без платного Apple Developer Program первый запуск покажет Gatekeeper: **"Приложение от неопознанного разработчика"**. Обходится правым кликом → **Открыть** → **Открыть**. После этого все обновления через Sparkle работают без предупреждений.
+Without a paid Apple Developer Program, the first launch triggers Gatekeeper: **"App from an unidentified developer"**. Workaround: right-click → **Open** → **Open**. After that, Sparkle updates install without further prompts.
 
-## Очистка данных
+## Wiping data
 
 ```bash
 rm -rf ~/Library/Application Support/MaCopy
 ```
-
-Или пункт **Очистить историю** в меню.
