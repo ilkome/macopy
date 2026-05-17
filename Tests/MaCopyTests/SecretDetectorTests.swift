@@ -101,6 +101,26 @@ final class SecretDetectorTests: XCTestCase {
         XCTAssertNil(SecretDetector.detect(in: "aB3xZ9-_kL4mN7"))
     }
 
+    func testIgnoresCyrillicPath() {
+        let path = "/Users/ilkome/Documents/works/brain/healh/Голодание/Варианты питаний"
+        XCTAssertNil(SecretDetector.detect(in: path))
+    }
+
+    func testIgnoresAbsolutePath() {
+        let path = "/Users/foo/Documents/projects/Whatever/very/deeply/nested/long/path"
+        XCTAssertNil(SecretDetector.detect(in: path))
+    }
+
+    func testIgnoresTildePath() {
+        let path = "~/Library/Application Support/MaCopy/very/long/deeply/nested/path"
+        XCTAssertNil(SecretDetector.detect(in: path))
+    }
+
+    func testIgnoresLongCyrillicText() {
+        let text = "Положи свой вариант рациона в /Users/ilkome/Documents/works/brain/healh/Голодание оформи как markdown"
+        XCTAssertNil(SecretDetector.detect(in: text))
+    }
+
     // MARK: - Entropy helper
 
     func testShannonEntropyOfRepeatedChar() {

@@ -51,6 +51,8 @@ enum SecretDetector {
     static func passesEntropyPrefilters(_ token: String) -> Bool {
         let len = token.count
         if len < 32 || len > 512 { return false }
+        if token.contains(where: { !$0.isASCII }) { return false }
+        if token.hasPrefix("/") || token.hasPrefix("~/") { return false }
         if token.contains("://") { return false }
         if token.lowercased().contains("data:") { return false }
         let ns = token as NSString
