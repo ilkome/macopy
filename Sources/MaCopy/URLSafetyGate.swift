@@ -1,11 +1,7 @@
-import Darwin
 import Foundation
 
 enum URLSafetyGate {
-    enum IPAddress: Sendable, Equatable {
-        case v4(UInt32)
-        case v6([UInt8])
-    }
+    typealias IPAddress = IPClassifier.IPAddress
 
     enum Decision: Sendable, Equatable {
         case allow
@@ -15,177 +11,39 @@ enum URLSafetyGate {
         case blockResolveFailed
     }
 
-    static func parseIPLiteral(_ host: String) -> IPAddress? {
-        var stripped = host
-        if stripped.hasPrefix("[") && stripped.hasSuffix("]") {
-            stripped = String(stripped.dropFirst().dropLast())
-        }
-        if let percent = stripped.firstIndex(of: "%") {
-            stripped = String(stripped[..<percent])
-        }
-
-        var v4 = in_addr()
-        if stripped.withCString({ inet_pton(AF_INET, $0, &v4) }) == 1 {
-            return .v4(UInt32(bigEndian: v4.s_addr))
-        }
-
-        var v6 = in6_addr()
-        if stripped.withCString({ inet_pton(AF_INET6, $0, &v6) }) == 1 {
-            var bytes = [UInt8](repeating: 0, count: 16)
-            withUnsafePointer(to: &v6) { ptr in
-                ptr.withMemoryRebound(to: UInt8.self, capacity: 16) { byte in
-                    for i in 0..<16 { bytes[i] = byte[i] }
-                }
-            }
-            return .v6(bytes)
-        }
-        return nil
-    }
-
-    static func isBlockedAddress(_ addr: IPAddress) -> Bool {
-        switch addr {
-        case .v4(let v): return isBlockedIPv4(v)
-        case .v6(let v): return isBlockedIPv6(v)
-        }
-    }
-
-    static func isBlockedIPv4(_ addr: UInt32) -> Bool {
-        let top = UInt8((addr >> 24) & 0xFF)
-        let second = UInt8((addr >> 16) & 0xFF)
-        let third = UInt8((addr >> 8) & 0xFF)
-
-        if top == 0 { return true }
-        if top == 10 { return true }
-        if top == 100 && (64...127).contains(second) { return true }
-        if top == 127 { return true }
-        if top == 169 && second == 254 { return true }
-        if top == 172 && (16...31).contains(second) { return true }
-        if top == 192 && second == 0 && (third == 0 || third == 2) { return true }
-        if top == 192 && second == 168 { return true }
-        if top == 198 && (second == 18 || second == 19) { return true }
-        if top == 198 && second == 51 && third == 100 { return true }
-        if top == 203 && second == 0 && third == 113 { return true }
-        if top >= 224 { return true }
-        return false
-    }
-
-    static func isBlockedIPv6(_ bytes: [UInt8]) -> Bool {
-        guard bytes.count == 16 else { return false }
-
-        if bytes.allSatisfy({ $0 == 0 }) { return true }
-
-        if bytes[0..<15].allSatisfy({ $0 == 0 }) && bytes[15] == 1 { return true }
-
-        if bytes[0..<10].allSatisfy({ $0 == 0 }) && bytes[10] == 0xFF && bytes[11] == 0xFF {
-            let v4 = (UInt32(bytes[12]) << 24)
-                | (UInt32(bytes[13]) << 16)
-                | (UInt32(bytes[14]) << 8)
-                | UInt32(bytes[15])
-            return isBlockedIPv4(v4)
-        }
-
-        if bytes[0] == 0xFE && (bytes[1] & 0xC0) == 0x80 { return true }
-        if (bytes[0] & 0xFE) == 0xFC { return true }
-        if bytes[0] == 0xFF { return true }
-
-        if bytes[0] == 0x00 && bytes[1] == 0x64 && bytes[2] == 0xFF && bytes[3] == 0x9B
-            && bytes[4..<12].allSatisfy({ $0 == 0 }) {
-            return true
-        }
-
-        if bytes[0] == 0x01 && bytes[1] == 0x00 && bytes[2..<8].allSatisfy({ $0 == 0 }) {
-            return true
-        }
-
-        if bytes[0] == 0x20 && bytes[1] == 0x01 && bytes[2] == 0x0D && bytes[3] == 0xB8 {
-            return true
-        }
-
-        if bytes[0] == 0x20 && bytes[1] == 0x01 && bytes[2] == 0x00 && bytes[3] == 0x00 {
-            return true
-        }
-
-        return false
-    }
-
     static func validateResolved(host: String?, timeout: TimeInterval = 3) async -> Decision {
         guard let host = host, !host.isEmpty else { return .blockNoHost }
 
-        if let literal = parseIPLiteral(host) {
-            return isBlockedAddress(literal) ? .blockPrivateIP : .allow
+        if let literal = IPClassifier.parseIPLiteral(host) {
+            return IPClassifier.isBlockedAddress(literal) ? .blockPrivateIP : .allow
         }
 
-        let addresses = await resolveAll(host: host, timeout: timeout)
+        let addresses = await DNSResolver.resolveAll(host: host, timeout: timeout)
         if addresses.isEmpty { return .blockResolveFailed }
 
         for addr in addresses {
-            if isBlockedAddress(addr) { return .blockPrivateIP }
+            if IPClassifier.isBlockedAddress(addr) { return .blockPrivateIP }
         }
         return .allow
     }
 
-    static func resolveAll(host: String, timeout: TimeInterval = 3) async -> [IPAddress] {
-        await withTaskGroup(of: Optional<[IPAddress]>.self) { group in
-            group.addTask { await resolveBlocking(host: host) }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                return nil
-            }
-            var result: [IPAddress] = []
-            for await value in group {
-                group.cancelAll()
-                result = value ?? []
-                break
-            }
-            return result
-        }
+    static func parseIPLiteral(_ host: String) -> IPAddress? {
+        IPClassifier.parseIPLiteral(host)
     }
 
-    private static func resolveBlocking(host: String) async -> [IPAddress] {
-        await withCheckedContinuation { (cont: CheckedContinuation<[IPAddress], Never>) in
-            DispatchQueue.global(qos: .userInitiated).async {
-                var hints = addrinfo()
-                hints.ai_family = AF_UNSPEC
-                hints.ai_socktype = SOCK_STREAM
-                hints.ai_flags = AI_ADDRCONFIG
+    static func isBlockedAddress(_ addr: IPAddress) -> Bool {
+        IPClassifier.isBlockedAddress(addr)
+    }
 
-                var res: UnsafeMutablePointer<addrinfo>?
-                let status = host.withCString { hostPtr in
-                    getaddrinfo(hostPtr, nil, &hints, &res)
-                }
-                guard status == 0, let head = res else {
-                    cont.resume(returning: [])
-                    return
-                }
-                defer { freeaddrinfo(head) }
+    static func isBlockedIPv4(_ addr: UInt32) -> Bool {
+        IPClassifier.isBlockedIPv4(addr)
+    }
 
-                var addresses: [IPAddress] = []
-                var cur: UnsafeMutablePointer<addrinfo>? = head
-                while let p = cur {
-                    let info = p.pointee
-                    if let addrPtr = info.ai_addr {
-                        if info.ai_family == AF_INET {
-                            addrPtr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { sin in
-                                let host = UInt32(bigEndian: sin.pointee.sin_addr.s_addr)
-                                addresses.append(.v4(host))
-                            }
-                        } else if info.ai_family == AF_INET6 {
-                            addrPtr.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { sin6 in
-                                var v6 = sin6.pointee.sin6_addr
-                                var bytes = [UInt8](repeating: 0, count: 16)
-                                withUnsafePointer(to: &v6) { ptr in
-                                    ptr.withMemoryRebound(to: UInt8.self, capacity: 16) { byte in
-                                        for i in 0..<16 { bytes[i] = byte[i] }
-                                    }
-                                }
-                                addresses.append(.v6(bytes))
-                            }
-                        }
-                    }
-                    cur = info.ai_next
-                }
-                cont.resume(returning: addresses)
-            }
-        }
+    static func isBlockedIPv6(_ bytes: [UInt8]) -> Bool {
+        IPClassifier.isBlockedIPv6(bytes)
+    }
+
+    static func resolveAll(host: String, timeout: TimeInterval = 3) async -> [IPAddress] {
+        await DNSResolver.resolveAll(host: host, timeout: timeout)
     }
 }
