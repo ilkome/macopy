@@ -13,6 +13,10 @@ enum SecretKind: String, CaseIterable, Equatable {
 }
 
 enum SecretDetector {
+    static func redactedSentinel(for kind: SecretKind) -> String {
+        "[Скрыто: \(kind.rawValue)]"
+    }
+
     static func detect(in text: String) -> SecretKind? {
         let ns = text as NSString
         let full = NSRange(location: 0, length: ns.length)
