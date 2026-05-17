@@ -16,11 +16,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         app.run()
     }
 
-    private var statusItem: NSStatusItem?
+    private var statusBar: StatusBarController?
     private var panel: FloatingPanel?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        setupStatusItem()
+        ImageStore.sweepPreviewDirectory()
+        statusBar = StatusBarController(
+            onToggle: { [weak self] in self?.togglePanel() },
+            onOpenSettings: { [weak self] in
+                UIState.shared.showSettings = true
+                self?.showPanel()
+            },
+            onCheckUpdates: { UpdaterController.shared.checkForUpdates() },
+            onQuit: { NSApp.terminate(nil) }
+        )
+        statusBar?.install()
         panel = FloatingPanel()
         KeyboardShortcuts.onKeyUp(for: .togglePanel) { [weak self] in
             self?.togglePanel()
@@ -28,74 +38,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ClipboardMonitor.shared.start()
         _ = UpdaterController.shared
         LinkPreviewService.shared.backfillPending()
-    }
 
-    private func setupStatusItem() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        if let button = item.button {
-            button.title = "📋"
-            button.target = self
-            button.action = #selector(statusItemClicked)
-            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-        }
-        statusItem = item
-    }
-
-    @objc private func statusItemClicked() {
-        guard let event = NSApp.currentEvent else {
-            togglePanel()
-            return
-        }
-        if event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
-            showMenu()
-        } else {
-            togglePanel()
+        let filterSecrets = AppSettings.shared.filterSensitiveContent
+        Task.detached(priority: .utility) {
+            await OCRService.backfillRedactionsOnceIfNeeded(filterSecrets: filterSecrets)
         }
     }
 
-    private func showMenu() {
-        let menu = NSMenu()
-
-        let settingsItem = NSMenuItem(
-            title: "Настройки…",
-            action: #selector(openSettings),
-            keyEquivalent: ","
-        )
-        settingsItem.target = self
-        menu.addItem(settingsItem)
-
-        menu.addItem(.separator())
-
-        let update = NSMenuItem(
-            title: "Проверить обновления",
-            action: #selector(checkForUpdates),
-            keyEquivalent: ""
-        )
-        update.target = self
-        menu.addItem(update)
-
-        menu.addItem(.separator())
-
-        let quit = NSMenuItem(title: "Выход", action: #selector(quit), keyEquivalent: "q")
-        quit.target = self
-        menu.addItem(quit)
-
-        guard let button = statusItem?.button else { return }
-        let origin = NSPoint(x: 0, y: button.bounds.height + 4)
-        menu.popUp(positioning: nil, at: origin, in: button)
-    }
-
-    @objc private func openSettings() {
-        UIState.shared.showSettings = true
-        showPanel()
-    }
-
-    @objc private func checkForUpdates() {
-        UpdaterController.shared.checkForUpdates()
-    }
-
-    @objc private func quit() {
-        NSApp.terminate(nil)
+    func applicationWillTerminate(_ notification: Notification) {
+        ImageStore.sweepPreviewDirectory()
     }
 
     func togglePanel() {
@@ -127,5 +78,4 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         UIState.shared.showSettings = false
         panel?.orderOut(nil)
     }
-
 }
