@@ -14,11 +14,18 @@ final class ClipboardStore: ObservableObject {
     @Published private(set) var dataVersion: Int = 0
 
     private var itemsCancellable: AnyDatabaseCancellable?
-    private var previewsCancellable: AnyDatabaseCancellable?
     private let recentLimit = 2000
 
     private init() {
         startObserving()
+    }
+
+    func upsertCachedPreview(_ preview: LinkPreviewRecord) {
+        previewsByHash[preview.urlHash] = preview
+    }
+
+    func removeCachedPreview(forHash hash: String) {
+        previewsByHash.removeValue(forKey: hash)
     }
 
     private func startObserving() {
@@ -38,22 +45,6 @@ final class ClipboardStore: ObservableObject {
                 MainActor.assumeIsolated {
                     self?.items = items
                     self?.dataVersion &+= 1
-                }
-            }
-        )
-
-        let previewsObservation = ValueObservation.tracking { db in
-            try LinkPreviewRecord.fetchAll(db)
-        }
-        previewsCancellable = previewsObservation.start(
-            in: AppDatabase.shared,
-            scheduling: .async(onQueue: DispatchQueue.main),
-            onError: { error in
-                Self.logger.error("previews observation failed: \(error, privacy: .private)")
-            },
-            onChange: { [weak self] all in
-                MainActor.assumeIsolated {
-                    self?.previewsByHash = Dictionary(uniqueKeysWithValues: all.map { ($0.urlHash, $0) })
                 }
             }
         )
