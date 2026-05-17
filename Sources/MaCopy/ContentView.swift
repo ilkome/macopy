@@ -327,7 +327,7 @@ struct ContentView: View {
         }
         searchTask = Task { @MainActor in
             if debounce {
-                try? await Task.sleep(for: .milliseconds(80))
+                try? await Task.sleep(for: .milliseconds(20))
                 if Task.isCancelled { return }
             }
             await recomputeAsync(forceFirst: forceFirst)

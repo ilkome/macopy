@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct ItemRow: View {
-    @Bindable var model: RowModel
+    let model: RowModel
     var displayOverride: String? = nil
     var showBadge: Bool = true
 

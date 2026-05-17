@@ -6,21 +6,20 @@ struct ResizableDivider: NSViewRepresentable {
     let minWidth: Double
     let maxWidth: Double
 
+    private func apply(_ delta: CGFloat) {
+        let next = width + Double(delta)
+        width = min(maxWidth, max(minWidth, next))
+    }
+
     func makeNSView(context: Context) -> NSView {
         let view = DragView()
-        view.onDelta = { delta in
-            let next = width + Double(delta)
-            width = min(maxWidth, max(minWidth, next))
-        }
+        view.onDelta = { apply($0) }
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
         guard let v = nsView as? DragView else { return }
-        v.onDelta = { delta in
-            let next = width + Double(delta)
-            width = min(maxWidth, max(minWidth, next))
-        }
+        v.onDelta = { apply($0) }
     }
 
     private final class DragView: NSView {
