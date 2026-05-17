@@ -1,90 +1,10 @@
 import AppKit
-import Fuse
 import KeyboardShortcuts
 import SwiftUI
-
-enum Layout {
-    static let rowHeight: CGFloat = 48
-    static let visibleRows = 9
-    static let searchHeight: CGFloat = 44
-    static let tabsHeight: CGFloat = 36
-    static let defaultListWidth: CGFloat = 380
-    static let defaultPreviewWidth: CGFloat = 360
-    static let splitDividerWidth: CGFloat = 6
-    static let minListWidth: CGFloat = 260
-    static let minPreviewWidth: CGFloat = 240
-
-    static let defaultDomainsWidth: CGFloat = 180
-    static let defaultUrlListWidth: CGFloat = 300
-    static let minDomainsWidth: CGFloat = 120
-    static let minUrlListWidth: CGFloat = 180
-    static let minUrlPreviewWidth: CGFloat = 200
-
-    static var panelWidth: CGFloat {
-        defaultListWidth + splitDividerWidth + defaultPreviewWidth
-    }
-    static var maxListWidth: CGFloat {
-        panelWidth - splitDividerWidth - minPreviewWidth
-    }
-    static var listHeight: CGFloat { rowHeight * CGFloat(visibleRows) }
-    static var panelHeight: CGFloat {
-        searchHeight + 1 + tabsHeight + 1 + listHeight
-    }
-
-    static var urlMaxDomainsWidth: CGFloat {
-        panelWidth - splitDividerWidth * 2 - minUrlListWidth - minUrlPreviewWidth
-    }
-    static func urlMaxListWidth(domains: CGFloat) -> CGFloat {
-        panelWidth - splitDividerWidth * 2 - domains - minUrlPreviewWidth
-    }
-    static func urlPreviewWidth(domains: CGFloat, list: CGFloat) -> CGFloat {
-        max(
-            minUrlPreviewWidth,
-            panelWidth - splitDividerWidth * 2 - domains - list
-        )
-    }
-}
-
-enum Tab: Int, CaseIterable {
-    case favorites, all, urls, images, colors, code
-
-    var title: String {
-        switch self {
-        case .all: "Все"
-        case .favorites: "Избранное"
-        case .images: "Изображения"
-        case .urls: "Ссылки"
-        case .colors: "Цвета"
-        case .code: "Код"
-        }
-    }
-
-    func matches(_ item: ClipboardItemRecord) -> Bool {
-        switch self {
-        case .all: true
-        case .favorites: item.isFavorite
-        case .images: item.kind == .image
-        case .urls: item.kind == .url
-        case .colors: item.kind == .color
-        case .code: item.kind == .code
-        }
-    }
-}
-
-@MainActor
-private let relativeFormatter: RelativeDateTimeFormatter = {
-    let f = RelativeDateTimeFormatter()
-    f.unitsStyle = .abbreviated
-    return f
-}()
-
-private let otherDomainKey = "__other__"
-private let domainSectionPrefix = "domain-"
 
 struct ContentView: View {
     @StateObject private var store = ClipboardStore.shared
     private var allItems: [ClipboardItemRecord] { store.items }
-
 
     @State private var query: String = ""
     @State private var selection: Selectable?
@@ -95,30 +15,19 @@ struct ContentView: View {
     @FocusState private var searchFocused: Bool
 
     @State private var rows: [RowModel] = []
-    @State private var sections: [Section] = []
+    @State private var sections: [RowSection] = []
     @State private var rowsById: [UUID: RowModel] = [:]
     @State private var domainByItemID: [UUID: String] = [:]
-    @State private var domainSectionsCache: [Section] = []
-    @State private var sectionsByID: [String: Section] = [:]
+    @State private var domainSectionsCache: [RowSection] = []
+    @State private var sectionsByID: [String: RowSection] = [:]
     @State private var firstRowSectionID: [UUID: String] = [:]
     @State private var visibleListCache: [Selectable] = []
+    @State private var lastAppliedStructuralHash: Int? = nil
     @State private var minuteTick = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
     @State private var searchTask: Task<Void, Never>?
     @ObservedObject private var settings = AppSettings.shared
     @ObservedObject private var uiState = UIState.shared
-    @State private var keyMonitor: Any?
-
-    enum Selectable: Hashable {
-        case item(UUID)
-        case domain(String)
-
-        var scrollID: String {
-            switch self {
-            case .item(let id): return id.uuidString
-            case .domain(let name): return domainSectionPrefix + name
-            }
-        }
-    }
+    @State private var keyMonitor: PanelKeyMonitor?
 
     private var selectedItem: ClipboardItemRecord? {
         guard case let .item(id) = selection else { return nil }
@@ -157,64 +66,14 @@ struct ContentView: View {
         return sectionsByID[domainSectionPrefix + name]?.rows ?? []
     }
 
-    private var domainSections: [Section] {
+    private var domainSections: [RowSection] {
         domainSectionsCache
-    }
-
-    @Observable
-    final class RowModel: Identifiable {
-        var item: ClipboardItemRecord
-        var match: SearchMatch?
-        var isSelected: Bool = false
-
-        var id: UUID { item.id }
-
-        private var _parsedURL: URL??
-        var parsedURL: URL? {
-            if let cached = _parsedURL { return cached }
-            let raw = (item.text ?? item.preview).trimmingCharacters(in: .whitespacesAndNewlines)
-            var url = URL(string: raw)
-            if url == nil,
-               let encoded = raw.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
-                url = URL(string: encoded)
-            }
-            _parsedURL = url
-            return url
-        }
-
-        init(item: ClipboardItemRecord, match: SearchMatch? = nil) {
-            self.item = item
-            self.match = match
-        }
-    }
-
-    struct Section: Identifiable {
-        let id: String
-        let title: String
-        let rows: [RowModel]
-    }
-
-    struct SearchMatch: Equatable {
-        let score: Double
-        let snippet: AttributedString
     }
 
     private struct AllItemsSignature: Equatable {
         let count: Int
         let topUpdatedAt: Date?
         let dataVersion: Int
-    }
-
-    private struct ScoringInput: Sendable {
-        let id: UUID
-        let updatedAt: Date
-        let fields: [String]
-    }
-
-    private struct ScoredResult: Sendable {
-        let id: UUID
-        let score: Double
-        let snippet: AttributedString
     }
 
     private var allItemsSignature: AllItemsSignature {
@@ -255,56 +114,22 @@ struct ContentView: View {
 
     private func installKeyMonitor() {
         guard keyMonitor == nil else { return }
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            handlePanelKeyDown(event)
-        }
+        let monitor = PanelKeyMonitor(callbacks: .init(
+            isItemSelected: {
+                if case .item = selection { return true }
+                return false
+            },
+            toggleFavorite: { toggleFavorite() },
+            focusComment: { uiState.commentFocusToken &+= 1 },
+            deleteSelected: { deleteSelected() }
+        ))
+        monitor.install()
+        keyMonitor = monitor
     }
 
     private func removeKeyMonitor() {
-        if let m = keyMonitor {
-            NSEvent.removeMonitor(m)
-            keyMonitor = nil
-        }
-    }
-
-    private func handlePanelKeyDown(_ event: NSEvent) -> NSEvent? {
-        guard event.modifierFlags.contains(.command) else { return event }
-        let shift = event.modifierFlags.contains(.shift)
-        switch event.keyCode {
-        case 2:
-            toggleFavorite()
-            return nil
-        case 14:
-            guard case .item = selection else { return event }
-            uiState.commentFocusToken &+= 1
-            return nil
-        case 51, 117:
-            if let text = NSApp.keyWindow?.firstResponder as? NSText,
-               !text.string.isEmpty {
-                return event
-            }
-            deleteSelected()
-            return nil
-        case 0:
-            return forwardAction(Selector("selectAll:"), event: event)
-        case 8:
-            return forwardAction(Selector("copy:"), event: event)
-        case 9:
-            return forwardAction(Selector("paste:"), event: event)
-        case 7:
-            return forwardAction(Selector("cut:"), event: event)
-        case 6:
-            return forwardAction(Selector(shift ? "redo:" : "undo:"), event: event)
-        default:
-            return event
-        }
-    }
-
-    private func forwardAction(_ selector: Selector, event: NSEvent) -> NSEvent? {
-        if NSApp.sendAction(selector, to: nil, from: nil) {
-            return nil
-        }
-        return event
+        keyMonitor?.remove()
+        keyMonitor = nil
     }
 
     private var mainBody: some View {
@@ -350,7 +175,7 @@ struct ContentView: View {
                 }
             }
             .onChange(of: query) { _, _ in
-                kickRecompute(forceFirst: true, debounce: false) {
+                kickRecompute(forceFirst: true, debounce: true) {
                     if !sections.isEmpty, let firstSection = sections.first {
                         proxy.scrollTo("section-\(firstSection.id)", anchor: .top)
                     }
@@ -360,7 +185,7 @@ struct ContentView: View {
                 kickRecompute(forceFirst: false, debounce: false)
             }
             .onReceive(minuteTick) { _ in
-                sections = buildSections(rows, query: query)
+                sections = SectionBuilder.build(rows, query: query, tab: tab)
             }
         }
     }
@@ -386,75 +211,15 @@ struct ContentView: View {
             return
         }
         let currentTab = tab
-        let inputs: [ScoringInput] = allItems
-            .filter { currentTab.matches($0) }
-            .map { item in
-                var fields: [String] = []
-                if let s = item.text, !s.isEmpty {
-                    fields.append(s)
-                } else if !item.preview.isEmpty {
-                    fields.append(item.preview)
-                }
-                if let s = item.ocrText, !s.isEmpty {
-                    fields.append(s.count > 500 ? String(s.prefix(500)) : s)
-                }
-                if let s = item.comment, !s.isEmpty { fields.append(s) }
-                return ScoringInput(id: item.id, updatedAt: item.updatedAt, fields: fields)
-            }
+        let inputs = SearchEngine.makeInputs(items: allItems, tab: currentTab)
         let scored = await Task.detached(priority: .userInitiated) { [q, inputs] in
-            ContentView.performScoring(inputs: inputs, query: q)
+            SearchEngine.performScoring(inputs: inputs, query: q)
         }.value
         if Task.isCancelled { return }
         guard q == query.trimmingCharacters(in: .whitespacesAndNewlines),
               currentTab == tab
         else { return }
         applyScored(scored, q: q, forceFirst: forceFirst)
-    }
-
-    nonisolated private static func performScoring(
-        inputs: [ScoringInput],
-        query: String
-    ) -> [ScoredResult] {
-        let fuse = Fuse(location: 0, distance: 1_000_000, threshold: 0.4)
-        guard let pattern = fuse.createPattern(from: query) else { return [] }
-        var scored: [(ScoringInput, Double, String, [CountableClosedRange<Int>])] = []
-        scored.reserveCapacity(inputs.count)
-        for input in inputs {
-            if Task.isCancelled { return [] }
-            var bestScore: Double?
-            var bestField: String?
-            var bestRanges: [CountableClosedRange<Int>] = []
-            for field in input.fields {
-                guard let r = fuse.search(pattern, in: field) else { continue }
-                if bestScore == nil || r.score < bestScore! {
-                    bestScore = r.score
-                    bestField = field
-                    bestRanges = r.ranges
-                }
-            }
-            if bestScore == nil {
-                for field in input.fields {
-                    guard let r = SubsequenceSearch.search(pattern: query, in: field) else { continue }
-                    if bestScore == nil || r.score < bestScore! {
-                        bestScore = r.score
-                        bestField = field
-                        bestRanges = r.ranges
-                    }
-                }
-            }
-            if let s = bestScore, let field = bestField, !bestRanges.isEmpty {
-                scored.append((input, s, field, bestRanges))
-            }
-        }
-        scored.sort { lhs, rhs in
-            if lhs.1 != rhs.1 { return lhs.1 < rhs.1 }
-            if lhs.0.updatedAt != rhs.0.updatedAt { return lhs.0.updatedAt > rhs.0.updatedAt }
-            return lhs.0.id.uuidString < rhs.0.id.uuidString
-        }
-        return scored.map { input, score, field, ranges in
-            let snippet = SearchSnippet.build(text: field, ranges: ranges, radius: 40)
-            return ScoredResult(id: input.id, score: score, snippet: snippet)
-        }
     }
 
     private func applyEmptyQuery(forceFirst: Bool) {
@@ -472,7 +237,7 @@ struct ContentView: View {
         applyBuilt(built, q: "", forceFirst: forceFirst)
     }
 
-    private func applyScored(_ scored: [ScoredResult], q: String, forceFirst: Bool) {
+    private func applyScored(_ scored: [SearchEngine.ScoredResult], q: String, forceFirst: Bool) {
         let currentById: [UUID: ClipboardItemRecord] = Dictionary(
             uniqueKeysWithValues: allItems.map { ($0.id, $0) }
         )
@@ -493,12 +258,30 @@ struct ContentView: View {
         applyBuilt(built, q: q, forceFirst: forceFirst)
     }
 
+    nonisolated static func structuralBuildHash(
+        q: String,
+        tab: Tab,
+        rows: [(UUID, Date)]
+    ) -> Int {
+        SearchEngine.structuralBuildHash(q: q, tab: tab, rows: rows)
+    }
+
     private func applyBuilt(_ built: [RowModel], q: String, forceFirst: Bool) {
-        let newSections = buildSections(built, query: q)
+        let newHash = SearchEngine.structuralBuildHash(
+            q: q,
+            tab: tab,
+            rows: built.map { ($0.id, $0.item.updatedAt) }
+        )
+        if !forceFirst, lastAppliedStructuralHash == newHash {
+            rows = built
+            return
+        }
+        lastAppliedStructuralHash = newHash
+        let newSections = SectionBuilder.build(built, query: q, tab: tab)
         let newById = Dictionary(uniqueKeysWithValues: built.map { ($0.id, $0) })
         var newDomainByItem: [UUID: String] = [:]
-        var newDomainSections: [Section] = []
-        var newSectionsByID: [String: Section] = [:]
+        var newDomainSections: [RowSection] = []
+        var newSectionsByID: [String: RowSection] = [:]
         var newFirstRowSectionID: [UUID: String] = [:]
         newSectionsByID.reserveCapacity(newSections.count)
         for section in newSections {
@@ -521,7 +304,7 @@ struct ContentView: View {
         domainSectionsCache = newDomainSections
         sectionsByID = newSectionsByID
         firstRowSectionID = newFirstRowSectionID
-        let visible = visibleSelectables(sections: newSections, tab: tab, query: q)
+        let visible = SelectionHelpers.visibleSelectables(sections: newSections, tab: tab, query: q)
         visibleListCache = visible
         let newSelection: Selectable?
         if forceFirst {
@@ -544,7 +327,7 @@ struct ContentView: View {
         }
         searchTask = Task { @MainActor in
             if debounce {
-                try? await Task.sleep(for: .milliseconds(20))
+                try? await Task.sleep(for: .milliseconds(80))
                 if Task.isCancelled { return }
             }
             await recomputeAsync(forceFirst: forceFirst)
@@ -566,107 +349,6 @@ struct ContentView: View {
            !newModel.isSelected {
             newModel.isSelected = true
         }
-    }
-
-    private func visibleSelectables(
-        sections: [Section],
-        tab: Tab,
-        query: String
-    ) -> [Selectable] {
-        let urlMode = tab == .urls && query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        var out: [Selectable] = []
-        for section in sections {
-            if urlMode, section.id.hasPrefix(domainSectionPrefix) {
-                let name = String(section.id.dropFirst(domainSectionPrefix.count))
-                out.append(.domain(name))
-            } else {
-                out.append(contentsOf: section.rows.map { .item($0.id) })
-            }
-        }
-        return out
-    }
-
-    private func buildSections(_ list: [RowModel], query: String) -> [Section] {
-        guard !list.isEmpty else { return [] }
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty {
-            return [Section(id: "results", title: "Результаты", rows: list)]
-        }
-        if tab == .urls {
-            return groupByDomain(list)
-        }
-        return groupByTime(list)
-    }
-
-    private func groupByTime(_ list: [RowModel]) -> [Section] {
-        let now = Date()
-        let cal = Calendar.current
-        let yesterday = cal.date(byAdding: .day, value: -1, to: now)
-
-        func bucket(_ date: Date) -> Int {
-            if now.timeIntervalSince(date) <= 3600 { return 0 }
-            if cal.isDate(date, inSameDayAs: now) { return 1 }
-            if let y = yesterday, cal.isDate(date, inSameDayAs: y) { return 2 }
-            if cal.isDate(date, equalTo: now, toGranularity: .weekOfYear) { return 3 }
-            return 4
-        }
-
-        let titles = [
-            "В течение часа",
-            "Сегодня",
-            "Вчера",
-            "На этой неделе",
-            "Ранее"
-        ]
-
-        var groups: [Int: [RowModel]] = [:]
-        for row in list {
-            groups[bucket(row.item.updatedAt), default: []].append(row)
-        }
-        return (0..<titles.count).compactMap { i in
-            guard let arr = groups[i], !arr.isEmpty else { return nil }
-            return Section(id: "bucket-\(i)", title: titles[i], rows: arr)
-        }
-    }
-
-    private func groupByDomain(_ list: [RowModel]) -> [Section] {
-        var groups: [String: [RowModel]] = [:]
-        for row in list {
-            let domain = Self.extractDomain(row) ?? "Без домена"
-            groups[domain, default: []].append(row)
-        }
-        let multi = groups.filter { $0.value.count > 1 }
-        let single = groups.filter { $0.value.count == 1 }
-        let sortedMulti = multi.keys.sorted { lhs, rhs in
-            let lc = multi[lhs]?.count ?? 0
-            let rc = multi[rhs]?.count ?? 0
-            if lc != rc { return lc > rc }
-            let lTop = multi[lhs]?.first?.item.updatedAt ?? .distantPast
-            let rTop = multi[rhs]?.first?.item.updatedAt ?? .distantPast
-            return lTop > rTop
-        }
-        var sections: [Section] = sortedMulti.map { domain in
-            let arr = multi[domain]!
-            let title = "\(domain) · \(arr.count)"
-            return Section(id: domainSectionPrefix + domain, title: title, rows: arr)
-        }
-        if !single.isEmpty {
-            let combined = single.values.flatMap { $0 }.sorted {
-                $0.item.updatedAt > $1.item.updatedAt
-            }
-            sections.append(Section(
-                id: domainSectionPrefix + otherDomainKey,
-                title: "Другие · \(combined.count)",
-                rows: combined
-            ))
-        }
-        return sections
-    }
-
-    private static func extractDomain(_ row: RowModel) -> String? {
-        guard var host = row.parsedURL?.host?.lowercased() else { return nil }
-        if host.hasPrefix("www.") { host = String(host.dropFirst(4)) }
-        return host.isEmpty ? nil : host
     }
 
     private func resetToTop(proxy: ScrollViewProxy) {
@@ -907,8 +589,8 @@ struct ContentView: View {
 
     private func urlPathRowView(_ row: RowModel) -> some View {
         let override: String = currentDomainName == otherDomainKey
-            ? Self.stripScheme((row.item.text ?? row.item.preview).trimmingCharacters(in: .whitespacesAndNewlines))
-            : Self.pathWithoutHost(row)
+            ? URLDisplay.stripScheme((row.item.text ?? row.item.preview).trimmingCharacters(in: .whitespacesAndNewlines))
+            : URLDisplay.pathWithoutHost(row)
         return ItemRow(model: row, displayOverride: override, showBadge: false)
             .id(row.id)
             .contentShape(Rectangle())
@@ -916,28 +598,6 @@ struct ContentView: View {
             .simultaneousGesture(
                 TapGesture().onEnded { applySelection(.item(row.id)) }
             )
-    }
-
-    private static func pathWithoutHost(_ row: RowModel) -> String {
-        let raw = (row.item.text ?? row.item.preview).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = row.parsedURL, url.host != nil else { return Self.stripScheme(raw) }
-        var tail = url.path
-        if let q = url.query, !q.isEmpty { tail += "?\(q)" }
-        if let f = url.fragment, !f.isEmpty { tail += "#\(f)" }
-        if tail.isEmpty || tail == "/" { return Self.stripScheme(raw) }
-        if tail.hasPrefix("/") { tail.removeFirst() }
-        return tail
-    }
-
-    static func stripScheme(_ raw: String) -> String {
-        var s = raw
-        for prefix in ["https://", "http://", "ftp://"] where s.hasPrefix(prefix) {
-            s.removeFirst(prefix.count)
-            break
-        }
-        if s.hasPrefix("www.") { s.removeFirst(4) }
-        if s.hasSuffix("/") { s.removeLast() }
-        return s
     }
 
     private func placeholderPane(_ text: String) -> some View {
@@ -1041,25 +701,16 @@ struct ContentView: View {
 
     private func deleteSelected() {
         guard case let .item(id) = selection, let row = rowsById[id] else { return }
-        if let next = nextSelectionAfterDelete(itemID: id) {
+        let next = SelectionHelpers.nextAfterDelete(
+            itemID: id,
+            urlMode: urlMode,
+            currentDomainRows: currentDomainRows,
+            visibleList: visibleListCache
+        )
+        if let next {
             applySelection(next)
         }
         removeItem(row.item)
-    }
-
-    private func nextSelectionAfterDelete(itemID: UUID) -> Selectable? {
-        if urlMode {
-            let list = currentDomainRows
-            guard let idx = list.firstIndex(where: { $0.id == itemID }) else { return nil }
-            if idx + 1 < list.count { return .item(list[idx + 1].id) }
-            if idx > 0 { return .item(list[idx - 1].id) }
-            return nil
-        }
-        let visible = visibleListCache
-        guard let idx = visible.firstIndex(of: .item(itemID)) else { return nil }
-        if idx + 1 < visible.count { return visible[idx + 1] }
-        if idx > 0 { return visible[idx - 1] }
-        return nil
     }
 
     private func toggleFavorite() {
@@ -1074,405 +725,10 @@ struct ContentView: View {
         }
         if item.kind == .url {
             let raw = item.text ?? item.preview
-            try? ClipboardRepository.deletePreview(urlHash: URLNormalizer.hash(raw))
+            let hash = URLNormalizer.hash(raw)
+            try? ClipboardRepository.deletePreview(urlHash: hash)
+            store.removeCachedPreview(forHash: hash)
         }
         try? ClipboardRepository.deleteItem(id: item.id)
-    }
-}
-
-struct ItemRow: View {
-    @Bindable var model: ContentView.RowModel
-    var displayOverride: String? = nil
-    var showBadge: Bool = true
-
-    private var item: ClipboardItemRecord { model.item }
-    private var match: ContentView.SearchMatch? { model.match }
-    private var selected: Bool { model.isSelected }
-
-    private var renderedText: AttributedString {
-        if let override = displayOverride {
-            return AttributedString(override.replacingOccurrences(of: "\n", with: " "))
-        }
-        if let snippet = match?.snippet {
-            return snippet
-        }
-        let raw = item.preview.replacingOccurrences(of: "\n", with: " ")
-        if item.kind == .url {
-            return AttributedString(ContentView.stripScheme(raw))
-        }
-        return AttributedString(raw)
-    }
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            if showBadge {
-                leadingBadge
-            }
-            textView
-                .frame(maxWidth: .infinity, alignment: .leading)
-            if let c = item.comment, !c.isEmpty {
-                Image(systemName: "text.bubble")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .help(String(c.prefix(120)))
-            }
-            if item.isFavorite {
-                Image(systemName: "star.fill")
-                    .font(.caption2)
-                    .foregroundStyle(.yellow)
-            }
-        }
-        .padding(.horizontal, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: Layout.rowHeight)
-        .background {
-            Color.accentColor.opacity(selected ? 0.3 : 0)
-        }
-    }
-
-    @ViewBuilder
-    private var leadingBadge: some View {
-        switch item.kind {
-        case .image:
-            if let path = item.imagePath,
-               let image = ImageCache.clipboardThumbnail(filename: path, maxPixelSize: 88) {
-                Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 26, height: 18)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
-            } else {
-                badgeIcon(systemName: "photo")
-            }
-        case .color:
-            RoundedRectangle(cornerRadius: 4)
-                .fill(ColorParser.parse(item.text ?? "")?.color ?? .gray)
-                .frame(width: 26, height: 26)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(.secondary.opacity(0.3))
-                )
-        case .code:
-            badgeIcon(systemName: "curlybraces")
-        case .url:
-            badgeIcon(systemName: "link")
-        case .text:
-            badgeIcon(systemName: "text.alignleft")
-        }
-    }
-
-    private func badgeIcon(systemName: String) -> some View {
-        Image(systemName: systemName)
-            .font(.system(size: 14))
-            .foregroundStyle(.secondary)
-            .frame(width: 26, height: 26)
-    }
-
-    @ViewBuilder
-    private var textView: some View {
-        switch item.kind {
-        case .code:
-            Text(renderedText)
-                .font(.system(.body, design: .monospaced))
-                .lineLimit(1)
-                .truncationMode(.tail)
-        case .color:
-            Text(renderedText)
-                .font(.system(.body, design: .monospaced))
-                .lineLimit(1)
-                .truncationMode(.tail)
-        default:
-            Text(renderedText)
-                .lineLimit(1)
-                .truncationMode(.tail)
-        }
-    }
-}
-
-struct ResizableDivider: NSViewRepresentable {
-    @Binding var width: Double
-    let minWidth: Double
-    let maxWidth: Double
-
-    func makeNSView(context: Context) -> NSView {
-        let view = DragView()
-        view.onDelta = { delta in
-            let next = width + Double(delta)
-            width = min(maxWidth, max(minWidth, next))
-        }
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        guard let v = nsView as? DragView else { return }
-        v.onDelta = { delta in
-            let next = width + Double(delta)
-            width = min(maxWidth, max(minWidth, next))
-        }
-    }
-
-    private final class DragView: NSView {
-        var onDelta: ((CGFloat) -> Void)?
-        private var tracking: NSTrackingArea?
-
-        override var mouseDownCanMoveWindow: Bool { false }
-
-        override func updateTrackingAreas() {
-            super.updateTrackingAreas()
-            if let tracking { removeTrackingArea(tracking) }
-            let area = NSTrackingArea(
-                rect: bounds,
-                options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
-                owner: self,
-                userInfo: nil
-            )
-            addTrackingArea(area)
-            tracking = area
-        }
-
-        override func resetCursorRects() {
-            addCursorRect(bounds, cursor: .resizeLeftRight)
-        }
-
-        override func mouseEntered(with event: NSEvent) {
-            NSCursor.resizeLeftRight.set()
-        }
-
-        override func mouseExited(with event: NSEvent) {
-            NSCursor.arrow.set()
-        }
-
-        override func mouseDown(with event: NSEvent) {}
-
-        override func mouseDragged(with event: NSEvent) {
-            onDelta?(event.deltaX)
-        }
-
-        override func draw(_ dirtyRect: NSRect) {
-            NSColor.secondaryLabelColor.withAlphaComponent(0.25).setFill()
-            NSRect(x: bounds.midX - 0.5, y: 0, width: 1, height: bounds.height).fill()
-        }
-    }
-}
-
-struct PreviewPane: View {
-    let item: ClipboardItemRecord?
-
-    var body: some View {
-        if let item {
-            content(for: item)
-        } else {
-            placeholder
-        }
-    }
-
-    private var placeholder: some View {
-        VStack {
-            Image(systemName: "square.and.pencil")
-                .font(.largeTitle)
-                .foregroundStyle(.tertiary)
-            Text("Нет превью")
-                .foregroundStyle(.tertiary)
-                .font(.caption)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    @ViewBuilder
-    private func content(for item: ClipboardItemRecord) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            body(for: item)
-            Spacer(minLength: 0)
-            Divider().opacity(0.3)
-            CommentEditor(item: item)
-                .id(item.id)
-            Divider().opacity(0.3)
-            footer(for: item)
-        }
-    }
-
-    @ViewBuilder
-    private func body(for item: ClipboardItemRecord) -> some View {
-        switch item.kind {
-        case .image:
-            imageBody(for: item)
-        case .color:
-            colorBody(for: item)
-        case .code:
-            textBody(item.text ?? item.preview, monospaced: true)
-        case .url:
-            urlBody(for: item)
-        default:
-            textBody(item.text ?? item.preview, monospaced: false)
-        }
-    }
-
-    private func textBody(_ text: String, monospaced: Bool) -> some View {
-        ScrollView {
-            Text(text)
-                .font(monospaced ? .system(.body, design: .monospaced) : .body)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12)
-        }
-    }
-
-    private func urlBody(for item: ClipboardItemRecord) -> some View {
-        let raw = (item.text ?? item.preview).trimmingCharacters(in: .whitespacesAndNewlines)
-        return LinkPreviewCard(rawURL: raw)
-    }
-
-    private func imageBody(for item: ClipboardItemRecord) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if let path = item.imagePath,
-               let image = ImageCache.clipboardImage(filename: path) {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: 220)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-            }
-            if item.imageWidth > 0 {
-                Text("\(item.imageWidth) × \(item.imageHeight)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            if let ocr = item.ocrText, !ocr.isEmpty {
-                Divider().opacity(0.3)
-                Text("OCR")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                ScrollView {
-                    Text(ocr)
-                        .font(.caption)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(maxHeight: 80)
-            }
-        }
-        .padding(12)
-    }
-
-    private func colorBody(for item: ClipboardItemRecord) -> some View {
-        let raw = item.text ?? item.preview
-        let parsed = ColorParser.parse(raw)
-        return VStack(alignment: .leading, spacing: 12) {
-            RoundedRectangle(cornerRadius: 8)
-                .fill(parsed?.color ?? .gray)
-                .frame(height: 100)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(.secondary.opacity(0.3))
-                )
-            Text(raw)
-                .font(.system(.title3, design: .monospaced))
-                .textSelection(.enabled)
-            if let rgb = parsed?.rgbString {
-                Text(rgb)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            }
-        }
-        .padding(12)
-    }
-
-    private func footer(for item: ClipboardItemRecord) -> some View {
-        HStack(spacing: 8) {
-            if let path = item.sourceAppIconPath,
-               let img = ImageCache.appIcon(filename: path) {
-                Image(nsImage: img).resizable().scaledToFit().frame(width: 16, height: 16)
-            }
-            Text(item.sourceAppName ?? "—")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            Text("·").foregroundStyle(.tertiary).font(.caption2)
-            Text(relativeFormatter.localizedString(for: item.updatedAt, relativeTo: Date()))
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-            Text("·").foregroundStyle(.tertiary).font(.caption2)
-            Text(byteString(item.byteSize))
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-            Spacer(minLength: 0)
-            if item.isFavorite {
-                Image(systemName: "star.fill")
-                    .font(.caption2)
-                    .foregroundStyle(.yellow)
-            }
-            if item.kind == .url {
-                Button {
-                    let raw = (item.text ?? item.preview).trimmingCharacters(in: .whitespacesAndNewlines)
-                    LinkPreviewService.shared.fetchIfNeeded(for: raw, force: true)
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.borderless)
-                .help("Обновить превью")
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-    }
-
-    private func byteString(_ bytes: Int) -> String {
-        ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
-    }
-}
-
-struct CommentEditor: View {
-    let item: ClipboardItemRecord
-    @ObservedObject private var uiState = UIState.shared
-    @FocusState private var focused: Bool
-    @State private var draft: String
-    @State private var saveTask: Task<Void, Never>?
-
-    init(item: ClipboardItemRecord) {
-        self.item = item
-        self._draft = State(initialValue: item.comment ?? "")
-    }
-
-    var body: some View {
-        ZStack(alignment: .topLeading) {
-            TextEditor(text: $draft)
-                .font(.system(size: 13))
-                .scrollContentBackground(.hidden)
-                .focused($focused)
-                .frame(minHeight: 22)
-                .fixedSize(horizontal: false, vertical: true)
-                .onKeyPress(.escape) {
-                    focused = false
-                    uiState.searchFocusToken &+= 1
-                    return .handled
-                }
-                .onChange(of: draft) { _, newValue in
-                    saveTask?.cancel()
-                    let normalized: String? = newValue.isEmpty ? nil : newValue
-                    let itemId = item.id
-                    saveTask = Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(300))
-                        guard !Task.isCancelled else { return }
-                        try? ClipboardRepository.updateComment(id: itemId, comment: normalized)
-                    }
-                }
-                .onChange(of: uiState.commentFocusToken) { _, _ in
-                    focused = true
-                }
-
-            if draft.isEmpty {
-                Text("Комментарий…")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.tertiary)
-                    .padding(.leading, 5)
-                    .padding(.top, 0)
-                    .allowsHitTesting(false)
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
     }
 }
