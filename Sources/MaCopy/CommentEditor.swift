@@ -32,7 +32,7 @@ struct CommentEditor: View {
                     saveTask = Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(300))
                         guard !Task.isCancelled else { return }
-                        try? ClipboardRepository.updateComment(id: itemId, comment: normalized)
+                        try? ClipboardItemRepository.updateComment(id: itemId, comment: normalized)
                     }
                 }
                 .onChange(of: uiState.commentFocusToken) { _, _ in

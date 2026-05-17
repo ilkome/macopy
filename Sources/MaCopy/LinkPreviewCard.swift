@@ -22,6 +22,11 @@ struct LinkPreviewCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .task(id: rawURL) {
+            let hash = URLNormalizer.hash(rawURL)
+            if store.previewsByHash[hash] == nil,
+               let fromDb = try? LinkPreviewRepository.findPreview(byHash: hash) {
+                store.upsertCachedPreview(fromDb)
+            }
             if preview?.status != .ok {
                 LinkPreviewService.shared.fetchIfNeeded(for: rawURL)
             }

@@ -15,7 +15,7 @@ enum OCRService {
 
         let items: [ClipboardItemRecord]
         do {
-            items = try ClipboardRepository.itemsWithOCR()
+            items = try ClipboardItemRepository.itemsWithOCR()
         } catch {
             return
         }
@@ -28,7 +28,7 @@ enum OCRService {
 
         if !pairs.isEmpty {
             do {
-                try ClipboardRepository.batchUpdateOCR(pairs)
+                try ClipboardItemRepository.batchUpdateOCR(pairs)
             } catch {
                 return
             }
@@ -70,13 +70,13 @@ enum OCRService {
             .joined(separator: "\n")
         guard !recognized.isEmpty else { return }
 
-        guard (try? ClipboardRepository.findItem(byID: itemId)) != nil else { return }
+        guard (try? ClipboardItemRepository.findItem(byID: itemId)) != nil else { return }
 
         let result = sanitizedOCRText(recognized, filterSecrets: filterSecrets)
         if let kind = result.redactedKind {
             privacyLogger.info("ocr-redacted: \(kind.rawValue, privacy: .public)")
         }
 
-        try? ClipboardRepository.updateOCR(id: itemId, text: result.text)
+        try? ClipboardItemRepository.updateOCR(id: itemId, text: result.text)
     }
 }

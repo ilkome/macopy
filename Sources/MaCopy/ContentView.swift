@@ -715,7 +715,7 @@ struct ContentView: View {
 
     private func toggleFavorite() {
         guard case let .item(id) = selection, let row = rowsById[id] else { return }
-        try? ClipboardRepository.updateFavorite(id: id, isFavorite: !row.item.isFavorite)
+        try? ClipboardItemRepository.updateFavorite(id: id, isFavorite: !row.item.isFavorite)
     }
 
     private func removeItem(_ item: ClipboardItemRecord) {
@@ -726,9 +726,9 @@ struct ContentView: View {
         if item.kind == .url {
             let raw = item.text ?? item.preview
             let hash = URLNormalizer.hash(raw)
-            try? ClipboardRepository.deletePreview(urlHash: hash)
+            try? LinkPreviewRepository.deletePreview(urlHash: hash)
             store.removeCachedPreview(forHash: hash)
         }
-        try? ClipboardRepository.deleteItem(id: item.id)
+        try? ClipboardItemRepository.deleteItem(id: item.id)
     }
 }

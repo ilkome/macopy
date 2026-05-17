@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-enum ClipboardRepository {
+enum ClipboardItemRepository {
     private static var pool: DatabasePool { AppDatabase.shared }
 
     static func findItem(byHash hash: String) throws -> ClipboardItemRecord? {
@@ -39,6 +39,25 @@ enum ClipboardRepository {
             try ClipboardItemRecord
                 .filter(ClipboardItemRecord.Columns.id == id)
                 .updateAll(db, ClipboardItemRecord.Columns.ocrText.set(to: text))
+        }
+    }
+
+    static func itemsWithOCR() throws -> [ClipboardItemRecord] {
+        try pool.read { db in
+            try ClipboardItemRecord
+                .filter(ClipboardItemRecord.Columns.ocrText != nil)
+                .fetchAll(db)
+        }
+    }
+
+    static func batchUpdateOCR(_ pairs: [(UUID, String)]) throws {
+        guard !pairs.isEmpty else { return }
+        try pool.write { db in
+            for (id, text) in pairs {
+                try ClipboardItemRecord
+                    .filter(ClipboardItemRecord.Columns.id == id)
+                    .updateAll(db, ClipboardItemRecord.Columns.ocrText.set(to: text))
+            }
         }
     }
 
@@ -80,34 +99,6 @@ enum ClipboardRepository {
             try ClipboardItemRecord
                 .filter(ClipboardItemRecord.Columns.kindRaw == "url")
                 .fetchAll(db)
-        }
-    }
-
-    static func findPreview(byHash hash: String) throws -> LinkPreviewRecord? {
-        try pool.read { db in
-            try LinkPreviewRecord
-                .filter(LinkPreviewRecord.Columns.urlHash == hash)
-                .fetchOne(db)
-        }
-    }
-
-    static func upsertPreview(_ preview: LinkPreviewRecord) throws {
-        try pool.write { db in
-            try preview.save(db)
-        }
-    }
-
-    static func deletePreview(urlHash: String) throws {
-        _ = try pool.write { db in
-            try LinkPreviewRecord
-                .filter(LinkPreviewRecord.Columns.urlHash == urlHash)
-                .deleteAll(db)
-        }
-    }
-
-    static func allPreviews() throws -> [LinkPreviewRecord] {
-        try pool.read { db in
-            try LinkPreviewRecord.fetchAll(db)
         }
     }
 }

@@ -21,7 +21,7 @@ final class LinkPreviewService {
             existing.cancel()
         }
 
-        if let existing = try? ClipboardRepository.findPreview(byHash: hash) {
+        if let existing = try? LinkPreviewRepository.findPreview(byHash: hash) {
             if !force && existing.status == .ok { return }
             if !force,
                existing.status == .failed,
@@ -50,12 +50,12 @@ final class LinkPreviewService {
 
     func backfillPending() {
         guard AppSettings.shared.linkPreviewsEnabled else { return }
-        guard let urlItems = try? ClipboardRepository.urlItems() else { return }
+        guard let urlItems = try? ClipboardItemRepository.urlItems() else { return }
         for item in urlItems {
             let raw = item.text ?? item.preview
             guard !raw.isEmpty else { continue }
             let hash = URLNormalizer.hash(raw)
-            if (try? ClipboardRepository.findPreview(byHash: hash)) == nil {
+            if (try? LinkPreviewRepository.findPreview(byHash: hash)) == nil {
                 fetchIfNeeded(for: raw)
             }
         }
@@ -149,7 +149,7 @@ final class LinkPreviewService {
     }
 
     private func finalize(hash: String, result: FetchResult) {
-        guard var preview = try? ClipboardRepository.findPreview(byHash: hash) else { return }
+        guard var preview = try? LinkPreviewRepository.findPreview(byHash: hash) else { return }
         preview.fetchedAt = Date()
         if preview.hostname == nil {
             preview.hostname = URLNormalizer.normalizedHost(preview.url)
@@ -170,7 +170,7 @@ final class LinkPreviewService {
 
     private func markSkipped(_ rawURL: String) {
         let hash = URLNormalizer.hash(rawURL)
-        if (try? ClipboardRepository.findPreview(byHash: hash)) != nil { return }
+        if (try? LinkPreviewRepository.findPreview(byHash: hash)) != nil { return }
         persist(LinkPreviewRecord(
             urlHash: hash,
             url: URLNormalizer.normalize(rawURL),
@@ -180,7 +180,7 @@ final class LinkPreviewService {
     }
 
     private func persist(_ preview: LinkPreviewRecord) {
-        try? ClipboardRepository.upsertPreview(preview)
+        try? LinkPreviewRepository.upsertPreview(preview)
         ClipboardStore.shared.upsertCachedPreview(preview)
     }
 }

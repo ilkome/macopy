@@ -120,8 +120,8 @@ final class ClipboardMonitor {
         let hashInput = kind == .url ? URLNormalizer.normalize(text) : text
         let hash = Self.sha256(Data(hashInput.utf8))
 
-        if let existing = try? ClipboardRepository.findItem(byHash: hash) {
-            try? ClipboardRepository.updateUpdatedAt(id: existing.id)
+        if let existing = try? ClipboardItemRepository.findItem(byHash: hash) {
+            try? ClipboardItemRepository.updateUpdatedAt(id: existing.id)
             if kind == .url {
                 LinkPreviewService.shared.fetchIfNeeded(for: text)
             }
@@ -142,7 +142,7 @@ final class ClipboardMonitor {
             sourceFilePath: sourceFile,
             byteSize: text.utf8.count
         )
-        try? ClipboardRepository.insertItem(item)
+        try? ClipboardItemRepository.insertItem(item)
 
         if kind == .url {
             LinkPreviewService.shared.fetchIfNeeded(for: text)
@@ -157,8 +157,8 @@ final class ClipboardMonitor {
     ) {
         let hash = Self.hashImage(data)
 
-        if let existing = try? ClipboardRepository.findItem(byHash: hash) {
-            try? ClipboardRepository.updateUpdatedAt(id: existing.id)
+        if let existing = try? ClipboardItemRepository.findItem(byHash: hash) {
+            try? ClipboardItemRepository.updateUpdatedAt(id: existing.id)
             return
         }
 
@@ -182,7 +182,7 @@ final class ClipboardMonitor {
             sourceFilePath: fileURL?.path,
             byteSize: data.count
         )
-        try? ClipboardRepository.insertItem(item)
+        try? ClipboardItemRepository.insertItem(item)
 
         if AppSettings.shared.ocrEnabled {
             let id = item.id
