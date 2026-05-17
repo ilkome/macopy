@@ -38,7 +38,7 @@ enum AppDatabase {
         } catch {
             throw AppDatabaseError.keychainFailed(underlying: error)
         }
-        let keyHex = key.withUnsafeBytes { Data($0) }.hexString
+        let keyHex = key.withUnsafeBytes { Data($0) }.map { String(format: "%02x", $0) }.joined()
 
         var config = Configuration()
         config.prepareDatabase { db in
