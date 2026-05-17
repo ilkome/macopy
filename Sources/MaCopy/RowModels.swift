@@ -12,12 +12,7 @@ final class RowModel: Identifiable {
     private var _parsedURL: URL??
     var parsedURL: URL? {
         if let cached = _parsedURL { return cached }
-        let raw = (item.text ?? item.preview).trimmingCharacters(in: .whitespacesAndNewlines)
-        var url = URL(string: raw)
-        if url == nil,
-           let encoded = raw.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
-            url = URL(string: encoded)
-        }
+        let url = URLNormalizer.parse(item.text ?? item.preview)
         _parsedURL = url
         return url
     }

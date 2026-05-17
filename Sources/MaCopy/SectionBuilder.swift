@@ -81,9 +81,7 @@ enum SectionBuilder {
 
 enum URLDisplay {
     static func extractDomain(_ row: RowModel) -> String? {
-        guard var host = row.parsedURL?.host?.lowercased() else { return nil }
-        if host.hasPrefix("www.") { host = String(host.dropFirst(4)) }
-        return host.isEmpty ? nil : host
+        URLNormalizer.normalizedHost(row.item.text ?? row.item.preview)
     }
 
     static func pathWithoutHost(_ row: RowModel) -> String {

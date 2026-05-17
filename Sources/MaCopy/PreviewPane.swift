@@ -1,14 +1,13 @@
 import SwiftUI
 
-@MainActor
-private let relativeFormatter: RelativeDateTimeFormatter = {
-    let f = RelativeDateTimeFormatter()
-    f.unitsStyle = .abbreviated
-    return f
-}()
-
 struct PreviewPane: View {
     let item: ClipboardItemRecord?
+
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .abbreviated
+        return f
+    }()
 
     var body: some View {
         if let item {
@@ -141,7 +140,7 @@ struct PreviewPane: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             Text("·").foregroundStyle(.tertiary).font(.caption2)
-            Text(relativeFormatter.localizedString(for: item.updatedAt, relativeTo: Date()))
+            Text(Self.relativeFormatter.localizedString(for: item.updatedAt, relativeTo: Date()))
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
             Text("·").foregroundStyle(.tertiary).font(.caption2)

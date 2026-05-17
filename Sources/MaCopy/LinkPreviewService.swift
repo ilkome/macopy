@@ -111,35 +111,9 @@ final class LinkPreviewService {
     }
 
     private nonisolated static func downloadImage(from url: URL) async -> Data? {
-        guard await URLSafetyGate.validateResolved(host: url.host) == .allow else { return nil }
-
-        let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 10
-        config.timeoutIntervalForResource = 30
-        config.urlCache = nil
-        config.requestCachePolicy = .reloadIgnoringLocalCacheData
-        config.httpCookieAcceptPolicy = .never
-        config.httpShouldSetCookies = false
-        config.waitsForConnectivity = false
-        config.tlsMinimumSupportedProtocolVersion = .TLSv12
-
-        let delegate = BoundedURLSessionDelegate(
-            maxBytes: 2 * 1024 * 1024,
-            originalHost: url.host
-        )
-        let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
-        defer { session.invalidateAndCancel() }
-
-        var request = URLRequest(url: url)
-        request.setValue(
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-            forHTTPHeaderField: "User-Agent"
-        )
-
-        guard let (data, response) = await delegate.fetch(request: request, session: session),
-              let http = response as? HTTPURLResponse,
-              (200..<400).contains(http.statusCode)
-        else { return nil }
+        guard let (data, _) = await SafeFetcher.fetch(url: url, maxBytes: 2 * 1024 * 1024) else {
+            return nil
+        }
         return LinkPreviewImageLoader.encodePNG(data: data)
     }
 
