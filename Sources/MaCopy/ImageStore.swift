@@ -58,13 +58,18 @@ enum ImageStore {
         FileManager.default.fileExists(atPath: encryptedURL(for: filename).path)
     }
 
+    static var previewDirectory: URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("MaCopy-preview", isDirectory: true)
+    }
+
     /// Decrypts the file to a temporary plain-text URL for consumers (e.g. QuickLook)
     /// that require a path. The file lives in `NSTemporaryDirectory()` and is overwritten
-    /// on repeat calls for the same filename.
+    /// on repeat calls for the same filename. The directory is wiped on app launch
+    /// and termination by `sweepPreviewDirectory()`.
     static func tempPlaintextURL(for filename: String) throws -> URL {
         let data = try read(filename: filename)
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MaCopy-preview", isDirectory: true)
+        let dir = previewDirectory
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let url = dir.appendingPathComponent(filename)
         do {
@@ -73,5 +78,9 @@ enum ImageStore {
             throw ImageStoreError.io(underlying: error)
         }
         return url
+    }
+
+    static func sweepPreviewDirectory() {
+        try? FileManager.default.removeItem(at: previewDirectory)
     }
 }
