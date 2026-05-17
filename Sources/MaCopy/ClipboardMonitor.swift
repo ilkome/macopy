@@ -117,7 +117,7 @@ final class ClipboardMonitor {
     private func handleText(_ text: String, sourceFile: String?, frontApp: NSRunningApplication?) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let kind = ContentTypeDetector.detect(text)
-        let hashInput = kind == .url ? Self.normalizeURL(text) : text
+        let hashInput = kind == .url ? URLNormalizer.normalize(text) : text
         let hash = Self.sha256(Data(hashInput.utf8))
 
         if let existing = try? ClipboardRepository.findItem(byHash: hash) {
@@ -186,8 +186,9 @@ final class ClipboardMonitor {
 
         if AppSettings.shared.ocrEnabled {
             let id = item.id
+            let filterSecrets = AppSettings.shared.filterSensitiveContent
             Task.detached(priority: .utility) {
-                await OCRService.process(itemId: id, imagePath: filename)
+                await OCRService.process(itemId: id, imagePath: filename, filterSecrets: filterSecrets)
             }
         }
     }
@@ -207,12 +208,6 @@ final class ClipboardMonitor {
         var size = UInt64(data.count)
         withUnsafeBytes(of: &size) { hasher.update(bufferPointer: $0) }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
-    }
-
-    private static func normalizeURL(_ raw: String) -> String {
-        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        while s.hasSuffix("/") { s.removeLast() }
-        return s
     }
 
     private static func sha256(_ data: Data) -> String {
