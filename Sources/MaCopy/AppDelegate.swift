@@ -67,10 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let y = screen.visibleFrame.midY - frame.height / 2
             panel.setFrameOrigin(NSPoint(x: x, y: y))
         }
-        if !Paster.shared.didPaste {
-            NotificationCenter.default.post(name: .clipboardPanelReset, object: nil)
-        }
-        Paster.shared.didPaste = false
+        NotificationCenter.default.post(name: .clipboardPanelReset, object: nil)
         panel.makeKeyAndOrderFront(nil)
     }
 

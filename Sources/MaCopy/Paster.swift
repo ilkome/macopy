@@ -15,7 +15,6 @@ final class Paster {
     private static let clipboardClearDelay: TimeInterval = 60
 
     var previousApp: NSRunningApplication?
-    var didPaste = false
 
     private var activationObserver: NSObjectProtocol?
     private var activationTimer: DispatchWorkItem?
@@ -64,7 +63,6 @@ final class Paster {
     @discardableResult
     func copyOnly(_ item: ClipboardItemRecord) -> Bool {
         guard copyToPasteboard(item) else { return false }
-        didPaste = true
         AppDelegate.shared?.hidePanel()
         return true
     }
@@ -73,7 +71,6 @@ final class Paster {
     func paste(_ item: ClipboardItemRecord) -> Bool {
         guard copyToPasteboard(item) else { return false }
 
-        didPaste = true
         AppDelegate.shared?.hidePanel()
 
         guard AccessibilityPrompt.isTrusted() else {
