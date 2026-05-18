@@ -9,44 +9,50 @@ final class StructuralBuildHashTests: XCTestCase {
     private let t2 = Date(timeIntervalSince1970: 1_700_000_001)
 
     func testEqualInputsProduceEqualHash() {
-        let h1 = ContentView.structuralBuildHash(q: "x", tab: .all, rows: [(idA, t1), (idB, t2)])
-        let h2 = ContentView.structuralBuildHash(q: "x", tab: .all, rows: [(idA, t1), (idB, t2)])
+        let h1 = ContentView.structuralBuildHash(q: "x", urlFirst: false, tab: .all, rows: [(idA, t1), (idB, t2)])
+        let h2 = ContentView.structuralBuildHash(q: "x", urlFirst: false, tab: .all, rows: [(idA, t1), (idB, t2)])
         XCTAssertEqual(h1, h2)
     }
 
     func testReorderedRowsDiffer() {
-        let h1 = ContentView.structuralBuildHash(q: "x", tab: .all, rows: [(idA, t1), (idB, t2)])
-        let h2 = ContentView.structuralBuildHash(q: "x", tab: .all, rows: [(idB, t2), (idA, t1)])
+        let h1 = ContentView.structuralBuildHash(q: "x", urlFirst: false, tab: .all, rows: [(idA, t1), (idB, t2)])
+        let h2 = ContentView.structuralBuildHash(q: "x", urlFirst: false, tab: .all, rows: [(idB, t2), (idA, t1)])
         XCTAssertNotEqual(h1, h2)
     }
 
     func testDifferentUpdatedAtDiffers() {
-        let h1 = ContentView.structuralBuildHash(q: "x", tab: .all, rows: [(idA, t1)])
-        let h2 = ContentView.structuralBuildHash(q: "x", tab: .all, rows: [(idA, t2)])
+        let h1 = ContentView.structuralBuildHash(q: "x", urlFirst: false, tab: .all, rows: [(idA, t1)])
+        let h2 = ContentView.structuralBuildHash(q: "x", urlFirst: false, tab: .all, rows: [(idA, t2)])
         XCTAssertNotEqual(h1, h2)
     }
 
     func testDifferentTabDiffers() {
-        let h1 = ContentView.structuralBuildHash(q: "x", tab: .all, rows: [(idA, t1)])
-        let h2 = ContentView.structuralBuildHash(q: "x", tab: .favorites, rows: [(idA, t1)])
+        let h1 = ContentView.structuralBuildHash(q: "x", urlFirst: false, tab: .all, rows: [(idA, t1)])
+        let h2 = ContentView.structuralBuildHash(q: "x", urlFirst: false, tab: .favorites, rows: [(idA, t1)])
         XCTAssertNotEqual(h1, h2)
     }
 
     func testDifferentQueryDiffers() {
-        let h1 = ContentView.structuralBuildHash(q: "abc", tab: .all, rows: [(idA, t1)])
-        let h2 = ContentView.structuralBuildHash(q: "abd", tab: .all, rows: [(idA, t1)])
+        let h1 = ContentView.structuralBuildHash(q: "abc", urlFirst: false, tab: .all, rows: [(idA, t1)])
+        let h2 = ContentView.structuralBuildHash(q: "abd", urlFirst: false, tab: .all, rows: [(idA, t1)])
         XCTAssertNotEqual(h1, h2)
     }
 
     func testEmptyRowsStillStableWithinRun() {
-        let h1 = ContentView.structuralBuildHash(q: "", tab: .all, rows: [])
-        let h2 = ContentView.structuralBuildHash(q: "", tab: .all, rows: [])
+        let h1 = ContentView.structuralBuildHash(q: "", urlFirst: false, tab: .all, rows: [])
+        let h2 = ContentView.structuralBuildHash(q: "", urlFirst: false, tab: .all, rows: [])
         XCTAssertEqual(h1, h2)
     }
 
     func testAddingRowDiffers() {
-        let h1 = ContentView.structuralBuildHash(q: "", tab: .all, rows: [(idA, t1)])
-        let h2 = ContentView.structuralBuildHash(q: "", tab: .all, rows: [(idA, t1), (idB, t2)])
+        let h1 = ContentView.structuralBuildHash(q: "", urlFirst: false, tab: .all, rows: [(idA, t1)])
+        let h2 = ContentView.structuralBuildHash(q: "", urlFirst: false, tab: .all, rows: [(idA, t1), (idB, t2)])
+        XCTAssertNotEqual(h1, h2)
+    }
+
+    func testUrlFirstFlagDiffers() {
+        let h1 = ContentView.structuralBuildHash(q: "x", urlFirst: false, tab: .all, rows: [(idA, t1)])
+        let h2 = ContentView.structuralBuildHash(q: "x", urlFirst: true, tab: .all, rows: [(idA, t1)])
         XCTAssertNotEqual(h1, h2)
     }
 }

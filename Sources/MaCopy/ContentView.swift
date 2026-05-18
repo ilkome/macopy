@@ -28,6 +28,7 @@ struct ContentView: View {
     @ObservedObject private var settings = AppSettings.shared
     @ObservedObject private var uiState = UIState.shared
     @State private var keyMonitor: PanelKeyMonitor?
+    @State private var pendingSelectionAfterClone: UUID?
 
     private var selectedItem: ClipboardItemRecord? {
         guard case let .item(id) = selection else { return nil }
@@ -121,7 +122,9 @@ struct ContentView: View {
             },
             toggleFavorite: { toggleFavorite() },
             focusComment: { uiState.commentFocusToken &+= 1 },
-            deleteSelected: { deleteSelected() }
+            focusEditor: { uiState.editorFocusToken &+= 1 },
+            deleteSelected: { deleteSelected() },
+            cloneSelected: { cloneSelected() }
         ))
         monitor.install()
         keyMonitor = monitor
@@ -185,7 +188,8 @@ struct ContentView: View {
                 kickRecompute(forceFirst: false, debounce: false)
             }
             .onReceive(minuteTick) { _ in
-                sections = SectionBuilder.build(rows, query: query, tab: tab)
+                let parsed = SearchEngine.parseQuery(query)
+                sections = SectionBuilder.build(rows, query: parsed.text, tab: tab, urlFirst: parsed.urlFirst)
             }
         }
     }
@@ -205,21 +209,27 @@ struct ContentView: View {
     }
 
     private func recomputeAsync(forceFirst: Bool = false) async {
-        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        if q.isEmpty {
+        let parsed = SearchEngine.parseQuery(query)
+        if parsed.text.isEmpty && !parsed.urlFirst {
             applyEmptyQuery(forceFirst: forceFirst)
+            return
+        }
+        if parsed.text.isEmpty && parsed.urlFirst {
+            applyURLsOnly(forceFirst: forceFirst)
             return
         }
         let currentTab = tab
         let inputs = SearchEngine.makeInputs(items: allItems, tab: currentTab)
-        let scored = await Task.detached(priority: .userInitiated) { [q, inputs] in
-            SearchEngine.performScoring(inputs: inputs, query: q)
+        let q = parsed.text
+        let urlFirst = parsed.urlFirst
+        let scored = await Task.detached(priority: .userInitiated) { [q, inputs, urlFirst] in
+            SearchEngine.performScoring(inputs: inputs, query: q, urlFirst: urlFirst)
         }.value
         if Task.isCancelled { return }
-        guard q == query.trimmingCharacters(in: .whitespacesAndNewlines),
+        guard SearchEngine.parseQuery(query) == parsed,
               currentTab == tab
         else { return }
-        applyScored(scored, q: q, forceFirst: forceFirst)
+        applyScored(scored, q: q, urlFirst: urlFirst, forceFirst: forceFirst)
     }
 
     private func applyEmptyQuery(forceFirst: Bool) {
@@ -234,10 +244,26 @@ struct ContentView: View {
                 }
                 return RowModel(item: item, match: nil)
             }
-        applyBuilt(built, q: "", forceFirst: forceFirst)
+        applyBuilt(built, q: "", urlFirst: false, forceFirst: forceFirst)
     }
 
-    private func applyScored(_ scored: [SearchEngine.ScoredResult], q: String, forceFirst: Bool) {
+    private func applyURLsOnly(forceFirst: Bool) {
+        let previousById = rowsById
+        let built: [RowModel] = allItems
+            .filter { $0.kind == .url }
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .map { item in
+                if let existing = previousById[item.id] {
+                    if existing.match != nil { existing.match = nil }
+                    if existing.item != item { existing.item = item }
+                    return existing
+                }
+                return RowModel(item: item, match: nil)
+            }
+        applyBuilt(built, q: "", urlFirst: true, forceFirst: forceFirst)
+    }
+
+    private func applyScored(_ scored: [SearchEngine.ScoredResult], q: String, urlFirst: Bool, forceFirst: Bool) {
         let currentById: [UUID: ClipboardItemRecord] = Dictionary(
             uniqueKeysWithValues: allItems.map { ($0.id, $0) }
         )
@@ -255,20 +281,22 @@ struct ContentView: View {
                 built.append(RowModel(item: item, match: match))
             }
         }
-        applyBuilt(built, q: q, forceFirst: forceFirst)
+        applyBuilt(built, q: q, urlFirst: urlFirst, forceFirst: forceFirst)
     }
 
     nonisolated static func structuralBuildHash(
         q: String,
+        urlFirst: Bool,
         tab: Tab,
         rows: [(UUID, Date)]
     ) -> Int {
-        SearchEngine.structuralBuildHash(q: q, tab: tab, rows: rows)
+        SearchEngine.structuralBuildHash(q: q, urlFirst: urlFirst, tab: tab, rows: rows)
     }
 
-    private func applyBuilt(_ built: [RowModel], q: String, forceFirst: Bool) {
+    private func applyBuilt(_ built: [RowModel], q: String, urlFirst: Bool, forceFirst: Bool) {
         let newHash = SearchEngine.structuralBuildHash(
             q: q,
+            urlFirst: urlFirst,
             tab: tab,
             rows: built.map { ($0.id, $0.item.updatedAt) }
         )
@@ -277,7 +305,7 @@ struct ContentView: View {
             return
         }
         lastAppliedStructuralHash = newHash
-        let newSections = SectionBuilder.build(built, query: q, tab: tab)
+        let newSections = SectionBuilder.build(built, query: q, tab: tab, urlFirst: urlFirst)
         let newById = Dictionary(uniqueKeysWithValues: built.map { ($0.id, $0) })
         var newDomainByItem: [UUID: String] = [:]
         var newDomainSections: [RowSection] = []
@@ -307,7 +335,13 @@ struct ContentView: View {
         let visible = SelectionHelpers.visibleSelectables(sections: newSections, tab: tab, query: q)
         visibleListCache = visible
         let newSelection: Selectable?
-        if forceFirst {
+        if let pending = pendingSelectionAfterClone, visible.contains(.item(pending)) {
+            pendingSelectionAfterClone = nil
+            newSelection = .item(pending)
+            DispatchQueue.main.async {
+                uiState.editorFocusToken &+= 1
+            }
+        } else if forceFirst {
             newSelection = visible.first
         } else if let sel = selection, visible.contains(sel) {
             newSelection = sel
@@ -516,7 +550,10 @@ struct ContentView: View {
             .contentShape(Rectangle())
             .onTapGesture(count: 2) { paste(row.item) }
             .simultaneousGesture(
-                TapGesture().onEnded { applySelection(.item(row.id)) }
+                TapGesture().onEnded {
+                    applySelection(.item(row.id))
+                    uiState.searchFocusToken &+= 1
+                }
             )
     }
 
@@ -567,7 +604,10 @@ struct ContentView: View {
             name: name,
             count: count,
             isSelected: currentDomainName == name,
-            onTap: { applySelection(.domain(name)) }
+            onTap: {
+                applySelection(.domain(name))
+                uiState.searchFocusToken &+= 1
+            }
         )
     }
 
@@ -596,7 +636,10 @@ struct ContentView: View {
             .contentShape(Rectangle())
             .onTapGesture(count: 2) { paste(row.item) }
             .simultaneousGesture(
-                TapGesture().onEnded { applySelection(.item(row.id)) }
+                TapGesture().onEnded {
+                    applySelection(.item(row.id))
+                    uiState.searchFocusToken &+= 1
+                }
             )
     }
 
@@ -716,6 +759,15 @@ struct ContentView: View {
     private func toggleFavorite() {
         guard case let .item(id) = selection, let row = rowsById[id] else { return }
         try? ClipboardItemRepository.updateFavorite(id: id, isFavorite: !row.item.isFavorite)
+    }
+
+    private func cloneSelected() {
+        guard case let .item(id) = selection,
+              let row = rowsById[id],
+              row.item.kind == .text else { return }
+        if let newId = try? ClipboardItemRepository.cloneItem(id: id) {
+            pendingSelectionAfterClone = newId
+        }
     }
 
     private func removeItem(_ item: ClipboardItemRecord) {

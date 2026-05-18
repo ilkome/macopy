@@ -2,16 +2,32 @@ import Foundation
 import Fuse
 
 enum SearchEngine {
+    struct ParsedQuery: Equatable, Sendable {
+        let text: String
+        let urlFirst: Bool
+    }
+
     struct ScoringInput: Sendable {
         let id: UUID
         let updatedAt: Date
+        let kind: ClipKind
         let fields: [String]
     }
 
     struct ScoredResult: Sendable {
         let id: UUID
+        let kind: ClipKind
         let score: Double
         let snippet: AttributedString
+    }
+
+    static func parseQuery(_ raw: String) -> ParsedQuery {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("@") else {
+            return ParsedQuery(text: trimmed, urlFirst: false)
+        }
+        let rest = String(trimmed.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+        return ParsedQuery(text: rest, urlFirst: true)
     }
 
     static func makeInputs(items: [ClipboardItemRecord], tab: Tab) -> [ScoringInput] {
@@ -28,13 +44,14 @@ enum SearchEngine {
                     fields.append(s.count > 500 ? String(s.prefix(500)) : s)
                 }
                 if let s = item.comment, !s.isEmpty { fields.append(s) }
-                return ScoringInput(id: item.id, updatedAt: item.updatedAt, fields: fields)
+                return ScoringInput(id: item.id, updatedAt: item.updatedAt, kind: item.kind, fields: fields)
             }
     }
 
     static func performScoring(
         inputs: [ScoringInput],
-        query: String
+        query: String,
+        urlFirst: Bool = false
     ) -> [ScoredResult] {
         let fuse = Fuse(location: 0, distance: 1_000_000, threshold: 0.4)
         guard let pattern = fuse.createPattern(from: query) else { return [] }
@@ -68,23 +85,30 @@ enum SearchEngine {
             }
         }
         scored.sort { lhs, rhs in
+            if urlFirst {
+                let l = lhs.0.kind == .url
+                let r = rhs.0.kind == .url
+                if l != r { return l && !r }
+            }
             if lhs.1 != rhs.1 { return lhs.1 < rhs.1 }
             if lhs.0.updatedAt != rhs.0.updatedAt { return lhs.0.updatedAt > rhs.0.updatedAt }
             return lhs.0.id.uuidString < rhs.0.id.uuidString
         }
         return scored.map { input, score, field, ranges in
             let snippet = SearchSnippet.build(text: field, ranges: ranges, radius: 40)
-            return ScoredResult(id: input.id, score: score, snippet: snippet)
+            return ScoredResult(id: input.id, kind: input.kind, score: score, snippet: snippet)
         }
     }
 
     static func structuralBuildHash(
         q: String,
+        urlFirst: Bool,
         tab: Tab,
         rows: [(UUID, Date)]
     ) -> Int {
         var hasher = Hasher()
         hasher.combine(q)
+        hasher.combine(urlFirst)
         hasher.combine(tab.rawValue)
         for (id, updatedAt) in rows {
             hasher.combine(id)

@@ -6,10 +6,9 @@ enum SelectionHelpers {
         tab: Tab,
         query: String
     ) -> [Selectable] {
-        let urlMode = tab == .urls && query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         var out: [Selectable] = []
         for section in sections {
-            if urlMode, section.id.hasPrefix(domainSectionPrefix) {
+            if section.id.hasPrefix(domainSectionPrefix) {
                 let name = String(section.id.dropFirst(domainSectionPrefix.count))
                 out.append(.domain(name))
             } else {

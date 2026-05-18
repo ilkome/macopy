@@ -1,9 +1,12 @@
 import Foundation
 
 enum SectionBuilder {
-    static func build(_ list: [RowModel], query: String, tab: Tab) -> [RowSection] {
+    static func build(_ list: [RowModel], query: String, tab: Tab, urlFirst: Bool = false) -> [RowSection] {
         guard !list.isEmpty else { return [] }
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if urlFirst {
+            return splitByURLPriority(list, searchActive: !trimmed.isEmpty)
+        }
         if !trimmed.isEmpty {
             return [RowSection(id: "results", title: "Результаты", rows: list)]
         }
@@ -11,6 +14,19 @@ enum SectionBuilder {
             return groupByDomain(list)
         }
         return groupByTime(list)
+    }
+
+    private static func splitByURLPriority(_ list: [RowModel], searchActive: Bool) -> [RowSection] {
+        let urls = list.filter { $0.item.kind == .url }
+        let others = list.filter { $0.item.kind != .url }
+        var sections: [RowSection] = []
+        if !urls.isEmpty {
+            sections.append(RowSection(id: "results-urls", title: "Ссылки", rows: urls))
+        }
+        if searchActive, !others.isEmpty {
+            sections.append(RowSection(id: "results-other", title: "Остальное", rows: others))
+        }
+        return sections
     }
 
     private static func groupByTime(_ list: [RowModel]) -> [RowSection] {
