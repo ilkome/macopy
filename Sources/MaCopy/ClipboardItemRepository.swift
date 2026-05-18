@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import CryptoKit
 
 enum ClipboardItemRepository {
     private static var pool: DatabasePool { AppDatabase.shared }
@@ -59,6 +60,42 @@ enum ClipboardItemRepository {
                     .updateAll(db, ClipboardItemRecord.Columns.ocrText.set(to: text))
             }
         }
+    }
+
+    static func updateText(id: UUID, newText: String) throws {
+        let newHash = sha256Hex(Data(newText.utf8))
+        let newPreview = String(newText.prefix(200))
+        let newByteSize = newText.utf8.count
+        let now = Date()
+        try pool.write { db in
+            let target = ClipboardItemRecord.filter(ClipboardItemRecord.Columns.id == id)
+            let collision = try ClipboardItemRecord
+                .filter(ClipboardItemRecord.Columns.contentHash == newHash)
+                .filter(ClipboardItemRecord.Columns.id != id)
+                .fetchCount(db) > 0
+            if collision {
+                try target.updateAll(
+                    db,
+                    ClipboardItemRecord.Columns.text.set(to: newText),
+                    ClipboardItemRecord.Columns.preview.set(to: newPreview),
+                    ClipboardItemRecord.Columns.byteSize.set(to: newByteSize),
+                    ClipboardItemRecord.Columns.updatedAt.set(to: now)
+                )
+            } else {
+                try target.updateAll(
+                    db,
+                    ClipboardItemRecord.Columns.text.set(to: newText),
+                    ClipboardItemRecord.Columns.preview.set(to: newPreview),
+                    ClipboardItemRecord.Columns.byteSize.set(to: newByteSize),
+                    ClipboardItemRecord.Columns.contentHash.set(to: newHash),
+                    ClipboardItemRecord.Columns.updatedAt.set(to: now)
+                )
+            }
+        }
+    }
+
+    private static func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     static func updateComment(id: UUID, comment: String?) throws {

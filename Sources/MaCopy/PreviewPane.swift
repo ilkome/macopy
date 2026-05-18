@@ -53,8 +53,8 @@ struct PreviewPane: View {
             textBody(item.text ?? item.preview, monospaced: true)
         case .url:
             urlBody(for: item)
-        default:
-            textBody(item.text ?? item.preview, monospaced: false)
+        case .text:
+            TextBodyEditor(item: item).id(item.id)
         }
     }
 
