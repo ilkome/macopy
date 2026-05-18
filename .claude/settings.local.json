@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(claude *)",
+      "Bash(npm view *)",
+      "Bash(swift build *)",
+      "Bash(xcodebuild -version)",
+      "Bash(mdfind \"kMDItemCFBundleIdentifier == 'com.apple.dt.Xcode'\")",
+      "Bash(swiftc -parse -suppress-warnings /Users/ilkome/Documents/works/macopy/Sources/MaCopy/ContentView.swift)",
+      "Bash(swiftc -parse /Users/ilkome/Documents/works/macopy/Sources/MaCopy/ContentView.swift)",
+      "Bash(xcrun --find swift)",
+      "Bash(xcode-select -p)",
+      "Bash(open *)",
+      "Bash(xcrun -f xcodebuild)",
+      "Bash(./build-app.sh)",
+      "Bash(pkill -f \"MaCopy by ilkome.app/Contents/MacOS/MaCopy\")",
+      "Bash(git *)",
+      "Bash(gh release *)",
+      "Bash(./release.sh 0.0.5)",
+      "Bash(gh api *)",
+      "WebSearch",
+      "WebFetch(domain:docs.claude.com)",
+      "WebFetch(domain:www.anthropic.com)",
+      "Bash(./release.sh *)",
+      "Bash(codesign -d --entitlements - \"MaCopy by ilkome.app\")",
+      "Bash(codesign -dvvv \"MaCopy by ilkome.app\")",
+      "Bash(gh search *)",
+      "WebFetch(domain:sparkle-project.org)"
+    ]
+  }
+}
