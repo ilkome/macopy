@@ -98,6 +98,20 @@ enum ClipboardItemRepository {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
+    static func cloneItem(id: UUID) throws -> UUID? {
+        guard let original = try findItem(byID: id), original.kind == .text else { return nil }
+        let now = Date()
+        let newID = UUID()
+        let syntheticHash = sha256Hex(Data((original.contentHash + ":" + newID.uuidString).utf8))
+        var clone = original
+        clone.id = newID
+        clone.createdAt = now
+        clone.updatedAt = now
+        clone.contentHash = syntheticHash
+        try pool.write { db in try clone.insert(db) }
+        return newID
+    }
+
     static func updateComment(id: UUID, comment: String?) throws {
         try pool.write { db in
             try ClipboardItemRecord

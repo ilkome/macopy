@@ -78,8 +78,10 @@ Without this permission content is still copied to the pasteboard, but the autom
 - **Double click** — paste
 - **Esc** — hide the panel
 - **⌘⌫** — delete the selected item from history (when the search/comment field is empty; otherwise the standard "delete to start of line" applies)
-- **⌘D** — toggle favorite
-- **⌘E** — focus the comment field of the selected item
+- **⌘S** — toggle favorite
+- **⌘D** — clone the selected text item (creates an editable copy)
+- **⌘E** — focus the text editor of the selected item
+- **⌘W** — focus the comment field of the selected item
 - **Space** — Quick Look for images
 - **Typing in the search field** — fuzzy filter
 - **Pin button** — pin the panel so it doesn't close on focus loss

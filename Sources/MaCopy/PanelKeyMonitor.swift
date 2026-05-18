@@ -6,7 +6,9 @@ final class PanelKeyMonitor {
         var isItemSelected: () -> Bool
         var toggleFavorite: () -> Void
         var focusComment: () -> Void
+        var focusEditor: () -> Void
         var deleteSelected: () -> Void
+        var cloneSelected: () -> Void
     }
 
     private var monitor: Any?
@@ -35,12 +37,21 @@ final class PanelKeyMonitor {
         guard event.modifierFlags.contains(.command) else { return event }
         let shift = event.modifierFlags.contains(.shift)
         switch event.keyCode {
-        case 2:
+        case 1:
+            guard callbacks.isItemSelected() else { return event }
             callbacks.toggleFavorite()
+            return nil
+        case 2:
+            guard callbacks.isItemSelected() else { return event }
+            callbacks.cloneSelected()
+            return nil
+        case 13:
+            guard callbacks.isItemSelected() else { return event }
+            callbacks.focusComment()
             return nil
         case 14:
             guard callbacks.isItemSelected() else { return event }
-            callbacks.focusComment()
+            callbacks.focusEditor()
             return nil
         case 51, 117:
             if let text = NSApp.keyWindow?.firstResponder as? NSText,

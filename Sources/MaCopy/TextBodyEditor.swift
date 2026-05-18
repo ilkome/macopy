@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct TextBodyEditor: View {
     let item: ClipboardItemRecord
@@ -43,6 +44,15 @@ struct TextBodyEditor: View {
                 guard draft.isEmpty else { return }
                 saveTask?.cancel()
                 try? ClipboardItemRepository.deleteItem(id: item.id)
+            }
+            .onChange(of: uiState.editorFocusToken) { _, _ in
+                focused = true
+                DispatchQueue.main.async {
+                    if let tv = NSApp.keyWindow?.firstResponder as? NSTextView {
+                        tv.setSelectedRange(NSRange(location: 0, length: 0))
+                        tv.scrollRangeToVisible(NSRange(location: 0, length: 0))
+                    }
+                }
             }
     }
 }

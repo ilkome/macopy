@@ -8,6 +8,7 @@ final class UIState: ObservableObject {
     @Published var showSettings: Bool = false
     @Published var commentFocusToken: Int = 0
     @Published var searchFocusToken: Int = 0
+    @Published var editorFocusToken: Int = 0
 
     private init() {}
 }
