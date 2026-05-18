@@ -4,11 +4,13 @@ import AppKit
 final class PanelKeyMonitor {
     struct Callbacks {
         var isItemSelected: () -> Bool
+        var isURLSelected: () -> Bool
         var toggleFavorite: () -> Void
         var focusComment: () -> Void
         var focusEditor: () -> Void
         var deleteSelected: () -> Void
         var cloneSelected: () -> Void
+        var openSelectedURL: () -> Void
     }
 
     private var monitor: Any?
@@ -52,6 +54,12 @@ final class PanelKeyMonitor {
         case 14:
             guard callbacks.isItemSelected() else { return event }
             callbacks.focusEditor()
+            return nil
+        case 36:
+            guard callbacks.isItemSelected() else { return event }
+            if callbacks.isURLSelected() {
+                callbacks.openSelectedURL()
+            }
             return nil
         case 51, 117:
             if let text = NSApp.keyWindow?.firstResponder as? NSText,

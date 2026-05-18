@@ -120,11 +120,13 @@ struct ContentView: View {
                 if case .item = selection { return true }
                 return false
             },
+            isURLSelected: { selectedItem?.kind == .url },
             toggleFavorite: { toggleFavorite() },
             focusComment: { uiState.commentFocusToken &+= 1 },
             focusEditor: { uiState.editorFocusToken &+= 1 },
             deleteSelected: { deleteSelected() },
-            cloneSelected: { cloneSelected() }
+            cloneSelected: { cloneSelected() },
+            openSelectedURL: { openSelectedURL() }
         ))
         monitor.install()
         keyMonitor = monitor
@@ -768,6 +770,16 @@ struct ContentView: View {
         if let newId = try? ClipboardItemRepository.cloneItem(id: id) {
             pendingSelectionAfterClone = newId
         }
+    }
+
+    private func openSelectedURL() {
+        guard case let .item(id) = selection,
+              let row = rowsById[id],
+              row.item.kind == .url else { return }
+        let raw = (row.item.text ?? row.item.preview).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: raw) else { return }
+        NSWorkspace.shared.open(url)
+        AppDelegate.shared?.hidePanel()
     }
 
     private func removeItem(_ item: ClipboardItemRecord) {
