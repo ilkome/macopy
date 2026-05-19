@@ -126,7 +126,9 @@ struct ContentView: View {
             focusEditor: { uiState.editorFocusToken &+= 1 },
             deleteSelected: { deleteSelected() },
             cloneSelected: { cloneSelected() },
-            openSelectedURL: { openSelectedURL() }
+            openSelectedURL: { openSelectedURL() },
+            hidePanel: { AppDelegate.shared?.hidePanel() },
+            openSettings: { uiState.showSettings = true }
         ))
         monitor.install()
         keyMonitor = monitor
@@ -439,10 +441,6 @@ struct ContentView: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 16))
                 .focused($searchFocused)
-                .onKeyPress(.escape) {
-                    AppDelegate.shared?.hidePanel()
-                    return .handled
-                }
                 .onKeyPress(.downArrow) {
                     move(1, proxy: proxy)
                     return .handled

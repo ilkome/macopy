@@ -20,11 +20,6 @@ struct TextBodyEditor: View {
             .focused($focused)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(8)
-            .onKeyPress(.escape) {
-                focused = false
-                uiState.searchFocusToken &+= 1
-                return .handled
-            }
             .onChange(of: draft) { _, newValue in
                 saveTask?.cancel()
                 guard !newValue.isEmpty else { return }

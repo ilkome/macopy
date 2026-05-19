@@ -20,11 +20,6 @@ struct CommentEditor: View {
                 .focused($focused)
                 .frame(minHeight: 22)
                 .fixedSize(horizontal: false, vertical: true)
-                .onKeyPress(.escape) {
-                    focused = false
-                    uiState.searchFocusToken &+= 1
-                    return .handled
-                }
                 .onChange(of: draft) { _, newValue in
                     saveTask?.cancel()
                     let normalized: String? = newValue.isEmpty ? nil : newValue

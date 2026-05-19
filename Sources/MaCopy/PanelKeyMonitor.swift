@@ -11,6 +11,8 @@ final class PanelKeyMonitor {
         var deleteSelected: () -> Void
         var cloneSelected: () -> Void
         var openSelectedURL: () -> Void
+        var hidePanel: () -> Void
+        var openSettings: () -> Void
     }
 
     private var monitor: Any?
@@ -36,6 +38,10 @@ final class PanelKeyMonitor {
     }
 
     private func handle(_ event: NSEvent) -> NSEvent? {
+        if event.keyCode == 53 {
+            callbacks.hidePanel()
+            return nil
+        }
         guard event.modifierFlags.contains(.command) else { return event }
         let shift = event.modifierFlags.contains(.shift)
         switch event.keyCode {
@@ -60,6 +66,9 @@ final class PanelKeyMonitor {
             if callbacks.isURLSelected() {
                 callbacks.openSelectedURL()
             }
+            return nil
+        case 43:
+            callbacks.openSettings()
             return nil
         case 51, 117:
             if let text = NSApp.keyWindow?.firstResponder as? NSText,
