@@ -167,18 +167,20 @@ struct SettingsView: View {
         }
     }
 
+    // Глифы команд над элементом берём из PanelCommand, чтобы FAQ, контекстное
+    // меню и PanelKeyMonitor не разъезжались.
     private static let panelShortcuts: [(label: String, keys: [String])] = [
         ("Навигация по списку", ["↑", "↓"]),
         ("Переключение вкладок", ["←", "→"]),
-        ("Вставить в предыдущее окно", ["⏎"]),
-        ("Скопировать в буфер без вставки", ["⇧", "⏎"]),
-        ("Открыть ссылку в браузере", ["⌘", "⏎"]),
-        ("Избранное", ["⌘", "S"]),
-        ("Дублировать", ["⌘", "D"]),
-        ("Редактировать текст", ["⌘", "E"]),
-        ("Комментарий", ["⌘", "W"]),
-        ("Удалить элемент", ["⌘", "⌫"]),
-        ("Quick Look для изображений", ["␣"]),
+        ("Вставить в предыдущее окно", PanelCommand.paste.shortcutGlyphs),
+        ("Скопировать в буфер без вставки", PanelCommand.copyOnly.shortcutGlyphs),
+        ("Открыть ссылку в браузере", PanelCommand.openURL.shortcutGlyphs),
+        ("Избранное", PanelCommand.favorite.shortcutGlyphs),
+        ("Дублировать", PanelCommand.clone.shortcutGlyphs),
+        ("Редактировать текст", PanelCommand.edit.shortcutGlyphs),
+        ("Комментарий", PanelCommand.comment.shortcutGlyphs),
+        ("Удалить элемент", PanelCommand.delete.shortcutGlyphs),
+        ("Quick Look для изображений", PanelCommand.quickLook.shortcutGlyphs),
         ("Открыть настройки", ["⌘", ","]),
         ("Скрыть панель", ["⎋"])
     ]

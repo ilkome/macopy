@@ -477,12 +477,8 @@ struct ContentView: View {
                     searchFocused = true
                 }
                 .onKeyPress(.space) {
-                    guard let item = selectedItem,
-                          item.kind == .image,
-                          let path = item.imagePath,
-                          let url = try? ImageStore.tempPlaintextURL(for: path)
-                    else { return .ignored }
-                    QuickLookController.shared.toggle(url: url)
+                    guard let item = selectedItem, item.kind == .image else { return .ignored }
+                    quickLook(item)
                     return .handled
                 }
             if let label = togglePanelShortcutLabel {
@@ -555,6 +551,52 @@ struct ContentView: View {
                     uiState.searchFocusToken &+= 1
                 }
             )
+            .contextMenu { rowContextMenu(row.item) }
+    }
+
+    /// Контекстное меню по правому клику: команды над конкретным элементом с
+    /// инлайн-подсказкой комбинации клавиш. Группы разделены `Divider`.
+    @ViewBuilder
+    private func rowContextMenu(_ item: ClipboardItemRecord) -> some View {
+        let groups: [[PanelCommand]] = [
+            [.paste, .copyOnly, .openURL],
+            [.favorite, .clone],
+            [.edit, .comment, .quickLook],
+            [.delete]
+        ]
+        ForEach(Array(groups.enumerated()), id: \.offset) { index, group in
+            let available = group.filter { $0.isAvailable(for: item) }
+            if !available.isEmpty {
+                if index > 0 { Divider() }
+                ForEach(available) { command in
+                    contextMenuButton(command, item: item)
+                }
+            }
+        }
+    }
+
+    /// Кнопка пункта меню. Для ⌘-команд используем `.keyboardShortcut` —
+    /// глиф прижимается к правому краю. Для ⏎/⇧⏎/␣ показываем глиф инлайн.
+    @ViewBuilder
+    private func contextMenuButton(_ command: PanelCommand, item: ClipboardItemRecord) -> some View {
+        let role: ButtonRole? = command == .delete ? .destructive : nil
+        if let shortcut = command.nativeShortcut {
+            Button(role: role) {
+                perform(command, on: item)
+            } label: {
+                Label(command.title(for: item), systemImage: command.symbol)
+            }
+            .keyboardShortcut(shortcut)
+        } else {
+            Button(role: role) {
+                perform(command, on: item)
+            } label: {
+                Label(
+                    "\(command.title(for: item))  \(command.shortcutDisplay)",
+                    systemImage: command.symbol
+                )
+            }
+        }
     }
 
     private func urlThreePane(proxy: ScrollViewProxy) -> some View {
@@ -641,6 +683,7 @@ struct ContentView: View {
                     uiState.searchFocusToken &+= 1
                 }
             )
+            .contextMenu { rowContextMenu(row.item) }
     }
 
     private func placeholderPane(_ text: String) -> some View {
@@ -728,6 +771,21 @@ struct ContentView: View {
         return true
     }
 
+    /// Выполнить команду меню над конкретным элементом (по правому клику).
+    private func perform(_ command: PanelCommand, on item: ClipboardItemRecord) {
+        switch command {
+        case .paste: paste(item)
+        case .copyOnly: copyOnly(item)
+        case .openURL: openURL(item)
+        case .favorite: toggleFavorite(item)
+        case .clone: clone(item)
+        case .edit: focusEditor(item)
+        case .comment: focusComment(item)
+        case .quickLook: quickLook(item)
+        case .delete: delete(item)
+        }
+    }
+
     private func paste(_ override: ClipboardItemRecord? = nil) {
         if let override {
             if !Paster.shared.paste(override) { removeItem(override) }
@@ -737,47 +795,87 @@ struct ContentView: View {
         if !Paster.shared.paste(row.item) { removeItem(row.item) }
     }
 
+    private func copyOnly(_ item: ClipboardItemRecord) {
+        if !Paster.shared.copyOnly(item) { removeItem(item) }
+    }
+
     private func copyOnlySelected() {
-        guard case let .item(id) = selection, let row = rowsById[id] else { return }
-        if !Paster.shared.copyOnly(row.item) { removeItem(row.item) }
+        guard let item = selectedItem else { return }
+        copyOnly(item)
+    }
+
+    private func delete(_ item: ClipboardItemRecord) {
+        if selection == .item(item.id) {
+            let next = SelectionHelpers.nextAfterDelete(
+                itemID: item.id,
+                urlMode: urlMode,
+                currentDomainRows: currentDomainRows,
+                visibleList: visibleListCache
+            )
+            if let next {
+                applySelection(next)
+            }
+        }
+        removeItem(item)
     }
 
     private func deleteSelected() {
-        guard case let .item(id) = selection, let row = rowsById[id] else { return }
-        let next = SelectionHelpers.nextAfterDelete(
-            itemID: id,
-            urlMode: urlMode,
-            currentDomainRows: currentDomainRows,
-            visibleList: visibleListCache
-        )
-        if let next {
-            applySelection(next)
-        }
-        removeItem(row.item)
+        guard let item = selectedItem else { return }
+        delete(item)
+    }
+
+    private func toggleFavorite(_ item: ClipboardItemRecord) {
+        try? ClipboardItemRepository.updateFavorite(id: item.id, isFavorite: !item.isFavorite)
     }
 
     private func toggleFavorite() {
-        guard case let .item(id) = selection, let row = rowsById[id] else { return }
-        try? ClipboardItemRepository.updateFavorite(id: id, isFavorite: !row.item.isFavorite)
+        guard let item = selectedItem else { return }
+        toggleFavorite(item)
     }
 
-    private func cloneSelected() {
-        guard case let .item(id) = selection,
-              let row = rowsById[id],
-              row.item.kind == .text else { return }
-        if let newId = try? ClipboardItemRepository.cloneItem(id: id) {
+    private func clone(_ item: ClipboardItemRecord) {
+        guard item.kind == .text else { return }
+        if let newId = try? ClipboardItemRepository.cloneItem(id: item.id) {
             pendingSelectionAfterClone = newId
         }
     }
 
-    private func openSelectedURL() {
-        guard case let .item(id) = selection,
-              let row = rowsById[id],
-              row.item.kind == .url else { return }
-        let raw = (row.item.text ?? row.item.preview).trimmingCharacters(in: .whitespacesAndNewlines)
+    private func cloneSelected() {
+        guard let item = selectedItem else { return }
+        clone(item)
+    }
+
+    private func openURL(_ item: ClipboardItemRecord) {
+        guard item.kind == .url else { return }
+        let raw = (item.text ?? item.preview).trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: raw) else { return }
         NSWorkspace.shared.open(url)
         AppDelegate.shared?.hidePanel()
+    }
+
+    private func openSelectedURL() {
+        guard let item = selectedItem else { return }
+        openURL(item)
+    }
+
+    /// Выбрать ряд и сфокусировать редактор текста в превью.
+    private func focusEditor(_ item: ClipboardItemRecord) {
+        applySelection(.item(item.id))
+        uiState.editorFocusToken &+= 1
+    }
+
+    /// Выбрать ряд и сфокусировать поле комментария в превью.
+    private func focusComment(_ item: ClipboardItemRecord) {
+        applySelection(.item(item.id))
+        uiState.commentFocusToken &+= 1
+    }
+
+    private func quickLook(_ item: ClipboardItemRecord) {
+        guard item.kind == .image,
+              let path = item.imagePath,
+              let url = try? ImageStore.tempPlaintextURL(for: path)
+        else { return }
+        QuickLookController.shared.toggle(url: url)
     }
 
     private func removeItem(_ item: ClipboardItemRecord) {
