@@ -22,10 +22,12 @@ final class ClipboardStore: ObservableObject {
 
     func upsertCachedPreview(_ preview: LinkPreviewRecord) {
         previewsByHash[preview.urlHash] = preview
+        dataVersion &+= 1
     }
 
     func removeCachedPreview(forHash hash: String) {
-        previewsByHash.removeValue(forKey: hash)
+        guard previewsByHash.removeValue(forKey: hash) != nil else { return }
+        dataVersion &+= 1
     }
 
     private func startObserving() {

@@ -30,7 +30,11 @@ enum SearchEngine {
         return ParsedQuery(text: rest, urlFirst: true)
     }
 
-    static func makeInputs(items: [ClipboardItemRecord], tab: Tab) -> [ScoringInput] {
+    static func makeInputs(
+        items: [ClipboardItemRecord],
+        tab: Tab,
+        previewsByHash: [String: LinkPreviewRecord] = [:]
+    ) -> [ScoringInput] {
         items
             .filter { tab.matches($0) }
             .map { item in
@@ -44,6 +48,18 @@ enum SearchEngine {
                     fields.append(s.count > 500 ? String(s.prefix(500)) : s)
                 }
                 if let s = item.comment, !s.isEmpty { fields.append(s) }
+                if item.kind == .url, !previewsByHash.isEmpty {
+                    let raw = item.text ?? item.preview
+                    let hash = URLNormalizer.hash(raw)
+                    if let preview = previewsByHash[hash] {
+                        if let s = preview.title, !s.isEmpty { fields.append(s) }
+                        if let s = preview.siteName, !s.isEmpty { fields.append(s) }
+                        if let s = preview.summary, !s.isEmpty {
+                            fields.append(s.count > 500 ? String(s.prefix(500)) : s)
+                        }
+                        if let s = preview.hostname, !s.isEmpty { fields.append(s) }
+                    }
+                }
                 return ScoringInput(id: item.id, updatedAt: item.updatedAt, kind: item.kind, fields: fields)
             }
     }

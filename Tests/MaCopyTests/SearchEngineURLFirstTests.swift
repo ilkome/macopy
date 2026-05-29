@@ -75,6 +75,93 @@ final class SearchEngineURLFirstTests: XCTestCase {
         XCTAssertEqual(withUrlFirst.first?.id, urlItem.id)
     }
 
+    // MARK: - preview-enriched fields
+
+    private func makeURLItem(_ url: String, age: TimeInterval = 0) -> ClipboardItemRecord {
+        ClipboardItemRecord(
+            id: UUID(),
+            updatedAt: Date().addingTimeInterval(-age),
+            contentHash: url,
+            kind: .url,
+            text: url,
+            preview: String(url.prefix(200))
+        )
+    }
+
+    private func makePreview(
+        forURL url: String,
+        title: String? = nil,
+        siteName: String? = nil,
+        summary: String? = nil,
+        hostname: String? = nil
+    ) -> LinkPreviewRecord {
+        LinkPreviewRecord(
+            urlHash: URLNormalizer.hash(url),
+            url: url,
+            hostname: hostname,
+            title: title,
+            siteName: siteName,
+            summary: summary
+        )
+    }
+
+    func testTitleMatchEnrichesURLItem() {
+        let url = "https://x.example.com/abc"
+        let item = makeURLItem(url)
+        let preview = makePreview(forURL: url, title: "Krasniqi notes")
+        let previews: [String: LinkPreviewRecord] = [preview.urlHash: preview]
+
+        let withoutPreviews = SearchEngine.makeInputs(items: [item], tab: .all)
+        let withPreviews = SearchEngine.makeInputs(items: [item], tab: .all, previewsByHash: previews)
+
+        let baseline = SearchEngine.performScoring(inputs: withoutPreviews, query: "krasniqi", urlFirst: false)
+        let enriched = SearchEngine.performScoring(inputs: withPreviews, query: "krasniqi", urlFirst: false)
+
+        XCTAssertTrue(baseline.isEmpty, "without preview, URL string alone shouldn't match 'krasniqi'")
+        XCTAssertEqual(enriched.count, 1)
+        XCTAssertEqual(enriched.first?.id, item.id)
+    }
+
+    func testSummaryMatchEnrichesURLItem() {
+        let url = "https://x.example.com/zzz"
+        let item = makeURLItem(url)
+        let preview = makePreview(forURL: url, summary: "deep dive on portmanteau words")
+        let previews: [String: LinkPreviewRecord] = [preview.urlHash: preview]
+
+        let inputs = SearchEngine.makeInputs(items: [item], tab: .all, previewsByHash: previews)
+        let results = SearchEngine.performScoring(inputs: inputs, query: "portmanteau", urlFirst: false)
+        XCTAssertEqual(results.count, 1)
+        XCTAssertEqual(results.first?.id, item.id)
+    }
+
+    func testHostnameMatchEnrichesURLItem() {
+        let url = "https://news.ycombinator.com/item?id=42"
+        let item = makeURLItem(url)
+        let preview = makePreview(forURL: url, hostname: "news.ycombinator.com")
+        let previews: [String: LinkPreviewRecord] = [preview.urlHash: preview]
+
+        let inputs = SearchEngine.makeInputs(items: [item], tab: .all, previewsByHash: previews)
+        let results = SearchEngine.performScoring(inputs: inputs, query: "ycombinator", urlFirst: true)
+        XCTAssertEqual(results.first?.id, item.id)
+    }
+
+    func testPreviewFieldsNotAppliedToNonURLItems() {
+        let text = "https://x.example.com/abc"
+        let textItem = ClipboardItemRecord(
+            id: UUID(),
+            contentHash: text,
+            kind: .text,
+            text: text,
+            preview: text
+        )
+        let preview = makePreview(forURL: text, title: "shouldnotmatch-tokenxyz")
+        let previews: [String: LinkPreviewRecord] = [preview.urlHash: preview]
+
+        let inputs = SearchEngine.makeInputs(items: [textItem], tab: .all, previewsByHash: previews)
+        let results = SearchEngine.performScoring(inputs: inputs, query: "shouldnotmatch-tokenxyz", urlFirst: false)
+        XCTAssertTrue(results.isEmpty, "non-URL kinds must not pull preview fields")
+    }
+
     func testUrlFirstKeepsScoreOrderWithinGroup() {
         // two URLs: closer match should come first inside the URL group
         let urlExact = makeItem("https://github.com/ilkome", kind: .url)

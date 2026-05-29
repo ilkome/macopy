@@ -223,7 +223,8 @@ struct ContentView: View {
             return
         }
         let currentTab = tab
-        let inputs = SearchEngine.makeInputs(items: allItems, tab: currentTab)
+        let previews = store.previewsByHash
+        let inputs = SearchEngine.makeInputs(items: allItems, tab: currentTab, previewsByHash: previews)
         let q = parsed.text
         let urlFirst = parsed.urlFirst
         let scored = await Task.detached(priority: .userInitiated) { [q, inputs, urlFirst] in
