@@ -1,11 +1,6 @@
 import AppKit
-import Carbon.HIToolbox
 
 enum PasteSimulator {
-    static func isSecureInputEnabled() -> Bool {
-        IsSecureEventInputEnabled()
-    }
-
     static func simulateCmdV() {
         let source = CGEventSource(stateID: .hidSystemState)
         let vKeyCode: CGKeyCode = 0x09

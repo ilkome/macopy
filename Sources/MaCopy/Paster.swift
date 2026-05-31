@@ -91,17 +91,9 @@ final class Paster {
                     Self.logger.info("paste aborted: frontmost mismatch (expected=\(prev.processIdentifier, privacy: .private), got=\(frontPID ?? -1, privacy: .private))")
                     return
                 }
-                guard !PasteSimulator.isSecureInputEnabled() else {
-                    Self.logger.info("paste aborted: secure input enabled")
-                    return
-                }
                 PasteSimulator.simulateCmdV()
             }
         } else {
-            guard !PasteSimulator.isSecureInputEnabled() else {
-                Self.logger.info("paste aborted: secure input enabled")
-                return true
-            }
             PasteSimulator.simulateCmdV()
         }
         return true
