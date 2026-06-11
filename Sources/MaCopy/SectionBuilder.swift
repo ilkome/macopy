@@ -8,7 +8,7 @@ enum SectionBuilder {
             return splitByURLPriority(list, searchActive: !trimmed.isEmpty)
         }
         if !trimmed.isEmpty {
-            return [RowSection(id: "results", title: "Результаты", rows: list)]
+            return [RowSection(id: "results", title: String(localized: "Results"), rows: list)]
         }
         if tab == .urls {
             return groupByDomain(list)
@@ -21,10 +21,10 @@ enum SectionBuilder {
         let others = list.filter { $0.item.kind != .url }
         var sections: [RowSection] = []
         if !urls.isEmpty {
-            sections.append(RowSection(id: "results-urls", title: "Ссылки", rows: urls))
+            sections.append(RowSection(id: "results-urls", title: String(localized: "Links"), rows: urls))
         }
         if searchActive, !others.isEmpty {
-            sections.append(RowSection(id: "results-other", title: "Остальное", rows: others))
+            sections.append(RowSection(id: "results-other", title: String(localized: "The rest"), rows: others))
         }
         return sections
     }
@@ -43,11 +43,11 @@ enum SectionBuilder {
         }
 
         let titles = [
-            "В течение часа",
-            "Сегодня",
-            "Вчера",
-            "На этой неделе",
-            "Ранее"
+            String(localized: "Within the hour"),
+            String(localized: "Today"),
+            String(localized: "Yesterday"),
+            String(localized: "This week"),
+            String(localized: "Earlier")
         ]
 
         var groups: [Int: [RowModel]] = [:]
@@ -63,7 +63,7 @@ enum SectionBuilder {
     private static func groupByDomain(_ list: [RowModel]) -> [RowSection] {
         var groups: [String: [RowModel]] = [:]
         for row in list {
-            let domain = URLDisplay.extractDomain(row) ?? "Без домена"
+            let domain = URLDisplay.extractDomain(row) ?? String(localized: "No domain")
             groups[domain, default: []].append(row)
         }
         let multi = groups.filter { $0.value.count > 1 }
@@ -87,7 +87,7 @@ enum SectionBuilder {
             }
             sections.append(RowSection(
                 id: domainSectionPrefix + otherDomainKey,
-                title: "Другие · \(combined.count)",
+                title: String(localized: "Other · \(combined.count)"),
                 rows: combined
             ))
         }

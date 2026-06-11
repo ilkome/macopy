@@ -464,7 +464,7 @@ struct ContentView: View {
 
     private func searchField(proxy: ScrollViewProxy) -> some View {
         HStack(spacing: 10) {
-            TextField("Поиск", text: $query)
+            TextField("Search", text: $query)
                 .textFieldStyle(.plain)
                 .font(.system(size: 16))
                 .focused($searchFocused)
@@ -532,7 +532,7 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
         }
         .buttonStyle(.borderless)
-        .help(settings.panelPinned ? "Открепить панель" : "Закрепить панель")
+        .help(settings.panelPinned ? "Unpin panel" : "Pin panel")
     }
 
     private var settingsMenu: some View {
@@ -544,7 +544,7 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
         }
         .buttonStyle(.borderless)
-        .help("Настройки")
+        .help("Settings")
     }
 
     private func listView(proxy: ScrollViewProxy) -> some View {
@@ -685,7 +685,7 @@ struct ContentView: View {
         return ScrollView {
             LazyVStack(spacing: 0) {
                 if rows.isEmpty {
-                    placeholderPane("Выбери домен")
+                    placeholderPane("Select a domain")
                 } else {
                     ForEach(rows, id: \.id) { row in
                         urlPathRowView(row)
@@ -713,7 +713,7 @@ struct ContentView: View {
             .contextMenu { rowContextMenu(row.item) }
     }
 
-    private func placeholderPane(_ text: String) -> some View {
+    private func placeholderPane(_ text: LocalizedStringKey) -> some View {
         VStack {
             Text(text)
                 .foregroundStyle(.tertiary)
@@ -739,7 +739,7 @@ struct ContentView: View {
             Image(systemName: "doc.on.clipboard")
                 .font(.largeTitle)
                 .foregroundStyle(.tertiary)
-            Text(query.isEmpty ? "История пуста" : "Ничего не найдено")
+            Text(query.isEmpty ? "History is empty" : "Nothing found")
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)

@@ -14,15 +14,15 @@ enum AccessibilityPrompt {
     @MainActor
     static func showAlert() {
         let alert = NSAlert()
-        alert.messageText = "Нужен доступ к Accessibility"
-        alert.informativeText = """
-        Чтобы MaCopy вставлял элементы автоматически, дай ему доступ:
-        Системные настройки → Приватность и безопасность → Универсальный доступ → включи MaCopy.
+        alert.messageText = String(localized: "Accessibility access required")
+        alert.informativeText = String(localized: """
+        To let MaCopy paste items automatically, grant it access:
+        System Settings → Privacy & Security → Accessibility → enable MaCopy.
 
-        Буфер уже обновлён — можешь вставить вручную ⌘V.
-        """
-        alert.addButton(withTitle: "Открыть настройки")
-        alert.addButton(withTitle: "Позже")
+        The clipboard is already updated - you can paste manually with ⌘V.
+        """)
+        alert.addButton(withTitle: String(localized: "Open settings"))
+        alert.addButton(withTitle: String(localized: "Later"))
         let response = alert.runModal()
         if response == .alertFirstButtonReturn {
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {

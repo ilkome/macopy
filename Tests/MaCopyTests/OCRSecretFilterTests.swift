@@ -6,7 +6,7 @@ final class OCRSecretFilterTests: XCTestCase {
     func testRedactedSentinelFormat() {
         for kind in SecretKind.allCases {
             let sentinel = SecretDetector.redactedSentinel(for: kind)
-            XCTAssertEqual(sentinel, "[Скрыто: \(kind.rawValue)]")
+            XCTAssertEqual(sentinel, "[Hidden: \(kind.rawValue)]")
             XCTAssertNil(
                 SecretDetector.detect(in: sentinel),
                 "Sentinel must not itself be classified as a secret (\(kind.rawValue))"
@@ -22,21 +22,21 @@ final class OCRSecretFilterTests: XCTestCase {
         """
         let result = OCRService.sanitizedOCRText(recognized, filterSecrets: true)
         XCTAssertEqual(result.redactedKind, .jwt)
-        XCTAssertEqual(result.text, "[Скрыто: jwt]")
+        XCTAssertEqual(result.text, "[Hidden: jwt]")
     }
 
     func testSanitizesAWSAccessKeyInOCROutput() {
         let recognized = "Console screenshot — AKIAIOSFODNN7EXAMPLE — region us-east-1"
         let result = OCRService.sanitizedOCRText(recognized, filterSecrets: true)
         XCTAssertEqual(result.redactedKind, .aws)
-        XCTAssertEqual(result.text, "[Скрыто: aws]")
+        XCTAssertEqual(result.text, "[Hidden: aws]")
     }
 
     func testSanitizesHighEntropyToken() {
         let recognized = "API key shown in screenshot:\naB3xZ9-_kL4mN7pQ2rS5tU8vW1yA6bC0dE3fG_hI-jK4lM7nO9pQ2rS5tU8vWzZyXq"
         let result = OCRService.sanitizedOCRText(recognized, filterSecrets: true)
         XCTAssertEqual(result.redactedKind, .highEntropy)
-        XCTAssertEqual(result.text, "[Скрыто: high_entropy]")
+        XCTAssertEqual(result.text, "[Hidden: high_entropy]")
     }
 
     func testPassesBenignTextThrough() {

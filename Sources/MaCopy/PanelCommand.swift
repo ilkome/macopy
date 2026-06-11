@@ -67,15 +67,17 @@ enum PanelCommand: CaseIterable, Identifiable {
 
     func title(for item: ClipboardItemRecord) -> String {
         switch self {
-        case .paste: return "Вставить"
-        case .copyOnly: return "Скопировать без вставки"
-        case .openURL: return "Открыть в браузере"
-        case .favorite: return item.isFavorite ? "Убрать из избранного" : "В избранное"
-        case .clone: return "Дублировать"
-        case .edit: return "Редактировать текст"
-        case .comment: return "Комментарий"
+        case .paste: return String(localized: "Paste")
+        case .copyOnly: return String(localized: "Copy without pasting")
+        case .openURL: return String(localized: "Open in browser")
+        case .favorite: return item.isFavorite
+            ? String(localized: "Remove from favorites")
+            : String(localized: "Add to favorites")
+        case .clone: return String(localized: "Duplicate")
+        case .edit: return String(localized: "Edit text")
+        case .comment: return String(localized: "Comment")
         case .quickLook: return "Quick Look"
-        case .delete: return "Удалить"
+        case .delete: return String(localized: "Delete")
         }
     }
 

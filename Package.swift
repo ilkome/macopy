@@ -3,6 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "MaCopy",
+    defaultLocalization: "en",
     platforms: [.macOS(.v14)],
     products: [
         .executable(name: "MaCopy", targets: ["MaCopy"])
@@ -21,6 +22,9 @@ let package = Package(
                 .product(name: "Sparkle", package: "Sparkle"),
                 .product(name: "KeyboardShortcuts", package: "KeyboardShortcuts"),
                 .product(name: "GRDB", package: "GRDB.swift")
+            ],
+            resources: [
+                .process("Resources")
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6)

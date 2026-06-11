@@ -27,6 +27,25 @@ mkdir -p "$MACOS_DIR"
 
 cp ".build/release/$EXE_NAME" "$MACOS_DIR/$EXE_NAME"
 
+RESOURCES_DIR="$CONTENTS/Resources"
+mkdir -p "$RESOURCES_DIR"
+cp "brand/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
+cp "brand/menubar-icon.pdf" "$RESOURCES_DIR/MenuBarIcon.pdf"
+
+# Localization: compile the String Catalog into per-language .lproj folders.
+# `swift build` only copies Localizable.xcstrings verbatim - it does not run the
+# catalog compiler - so we invoke xcstringstool directly and place the result at
+# the app bundle root, where the default Bundle.main lookup used by SwiftUI Text
+# and String(localized:) resolves them.
+CATALOG="Sources/MaCopy/Resources/Localizable.xcstrings"
+if [ -f "$CATALOG" ]; then
+    xcrun xcstringstool compile "$CATALOG" --output-directory "$RESOURCES_DIR"
+    echo "→ localizations: $(cd "$RESOURCES_DIR" && ls -d *.lproj 2>/dev/null | tr '\n' ' ')"
+else
+    echo "✗ string catalog $CATALOG not found - localizations would be missing" >&2
+    exit 1
+fi
+
 FRAMEWORKS_DIR="$CONTENTS/Frameworks"
 mkdir -p "$FRAMEWORKS_DIR"
 SPARKLE_SRC=".build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
@@ -64,8 +83,27 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <string>$BUNDLE_ID</string>
     <key>CFBundleExecutable</key>
     <string>$EXE_NAME</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>en</string>
+        <string>ru</string>
+        <string>zh-Hans</string>
+        <string>ja</string>
+        <string>ko</string>
+        <string>de</string>
+        <string>fr</string>
+        <string>es</string>
+        <string>it</string>
+        <string>pt-BR</string>
+        <string>tr</string>
+        <string>pl</string>
+    </array>
     <key>CFBundleShortVersionString</key>
     <string>$VERSION</string>
     <key>CFBundleVersion</key>

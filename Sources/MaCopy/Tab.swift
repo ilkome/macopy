@@ -5,12 +5,12 @@ enum Tab: Int, CaseIterable {
 
     var title: String {
         switch self {
-        case .all: "Все"
-        case .favorites: "Избранное"
-        case .images: "Изображения"
-        case .urls: "Ссылки"
-        case .colors: "Цвета"
-        case .code: "Код"
+        case .all: String(localized: "All")
+        case .favorites: String(localized: "Favorites")
+        case .images: String(localized: "Images")
+        case .urls: String(localized: "Links")
+        case .colors: String(localized: "Colors")
+        case .code: String(localized: "Code")
         }
     }
 

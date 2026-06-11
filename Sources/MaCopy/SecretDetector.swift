@@ -14,7 +14,7 @@ enum SecretKind: String, CaseIterable, Equatable {
 
 enum SecretDetector {
     static func redactedSentinel(for kind: SecretKind) -> String {
-        "[Скрыто: \(kind.rawValue)]"
+        String(localized: "[Hidden: \(kind.rawValue)]")
     }
 
     static func detect(in text: String) -> SecretKind? {

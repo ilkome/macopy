@@ -35,7 +35,7 @@ struct CommentEditor: View {
                 }
 
             if draft.isEmpty {
-                Text("Комментарий…")
+                Text("Comment…")
                     .font(.system(size: 13))
                     .foregroundStyle(.tertiary)
                     .padding(.leading, 5)

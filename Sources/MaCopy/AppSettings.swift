@@ -10,9 +10,9 @@ enum PanelMaterial: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .regular: "Обычная"
-        case .thick: "Плотная"
-        case .ultraThick: "Максимальная"
+        case .regular: String(localized: "Regular")
+        case .thick: String(localized: "Dense")
+        case .ultraThick: String(localized: "Maximum")
         }
     }
 
@@ -49,12 +49,27 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(filterSensitiveContent, forKey: Keys.filterSensitive) }
     }
 
+    /// Override for the UI language. Empty string means "follow the macOS
+    /// system language". Writing it updates `AppleLanguages`, which Foundation
+    /// reads at launch, so a relaunch is required for the change to take effect.
+    @Published var appLanguage: String {
+        didSet {
+            UserDefaults.standard.set(appLanguage, forKey: Keys.language)
+            if appLanguage.isEmpty {
+                UserDefaults.standard.removeObject(forKey: "AppleLanguages")
+            } else {
+                UserDefaults.standard.set([appLanguage], forKey: "AppleLanguages")
+            }
+        }
+    }
+
     private enum Keys {
         static let ocr = "ocrEnabled"
         static let material = "panelMaterial"
         static let linkPreviews = "linkPreviewsEnabled"
         static let pinned = "panelPinned"
         static let filterSensitive = "filterSensitiveContent"
+        static let language = "appLanguage"
     }
 
     private init() {
@@ -74,5 +89,6 @@ final class AppSettings: ObservableObject {
             d.set(true, forKey: Keys.filterSensitive)
         }
         self.filterSensitiveContent = d.bool(forKey: Keys.filterSensitive)
+        self.appLanguage = d.string(forKey: Keys.language) ?? ""
     }
 }

@@ -80,7 +80,7 @@ struct PreviewPane: View {
             Image(systemName: "square.and.pencil")
                 .font(.largeTitle)
                 .foregroundStyle(.tertiary)
-            Text("Нет превью")
+            Text("No preview")
                 .foregroundStyle(.tertiary)
                 .font(.caption)
         }
@@ -225,7 +225,7 @@ struct PreviewPane: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.borderless)
-                .help("Обновить превью")
+                .help("Refresh preview")
             }
         }
         .padding(.horizontal, 12)

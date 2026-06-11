@@ -24,7 +24,14 @@ final class StatusBarController: NSObject {
     func install() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = item.button {
-            button.title = "📋"
+            if let url = Bundle.main.url(forResource: "MenuBarIcon", withExtension: "pdf"),
+               let image = NSImage(contentsOf: url) {
+                image.size = NSSize(width: 18, height: 18)
+                image.isTemplate = true // macOS tints it for light/dark menu bars
+                button.image = image
+            } else {
+                button.title = "📋"
+            }
             button.target = self
             button.action = #selector(statusItemClicked)
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -48,7 +55,7 @@ final class StatusBarController: NSObject {
         let menu = NSMenu()
 
         let settingsItem = NSMenuItem(
-            title: "Настройки…",
+            title: String(localized: "Settings…"),
             action: #selector(openSettings),
             keyEquivalent: ","
         )
@@ -58,7 +65,7 @@ final class StatusBarController: NSObject {
         menu.addItem(.separator())
 
         let update = NSMenuItem(
-            title: "Проверить обновления",
+            title: String(localized: "Check for updates"),
             action: #selector(checkForUpdates),
             keyEquivalent: ""
         )
@@ -67,7 +74,7 @@ final class StatusBarController: NSObject {
 
         menu.addItem(.separator())
 
-        let quitItem = NSMenuItem(title: "Выход", action: #selector(quit), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: String(localized: "Quit"), action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
 

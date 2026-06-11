@@ -24,7 +24,7 @@ struct DomainRow: View {
             .iconData
     }
 
-    private var displayName: String { isOther ? "Другие" : name }
+    private var displayName: String { isOther ? String(localized: "Other") : name }
 
     var body: some View {
         HStack(spacing: 8) {

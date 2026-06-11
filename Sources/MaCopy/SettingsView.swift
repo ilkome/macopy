@@ -1,3 +1,4 @@
+import AppKit
 import KeyboardShortcuts
 import SwiftUI
 
@@ -28,9 +29,9 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.borderless)
-                .help("Назад")
+                .help("Back")
             }
-            Text("Настройки")
+            Text("Settings")
                 .font(.system(size: 14, weight: .semibold))
             Spacer()
         }
@@ -41,31 +42,46 @@ struct SettingsView: View {
     @ViewBuilder
     private var content: some View {
         VStack(alignment: .leading, spacing: 24) {
-            section(title: "Поиск") {
+            section(title: "Language") {
+                    HStack {
+                        Text("Interface language")
+                        Spacer()
+                        Picker("", selection: languageBinding) {
+                            Text("System").tag("")
+                            ForEach(Self.languageOptions) { option in
+                                Text(verbatim: option.name).tag(option.code)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 200)
+                    }
+                }
+
+                section(title: "Search") {
                     Toggle(isOn: $settings.ocrEnabled) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("OCR для скриншотов")
-                            Text("Распознаёт текст на изображениях и делает его искомым.")
+                            Text("OCR for screenshots")
+                            Text("Recognizes text in images and makes it searchable.")
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
                         }
                     }
                 }
 
-                section(title: "Приватность") {
+                section(title: "Privacy") {
                     Toggle(isOn: $settings.filterSensitiveContent) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Не сохранять секреты")
-                            Text("Отфильтровывает JWT, API-ключи (AWS, GitHub, Stripe, OpenAI, Anthropic, Google) и строки с высокой энтропией. В историю такие записи не попадают.")
+                            Text("Don't save secrets")
+                            Text("Filters out JWTs, API keys (AWS, GitHub, Stripe, OpenAI, Anthropic, Google) and high-entropy strings. Such entries never reach the history.")
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
                         }
                     }
                 }
 
-                section(title: "Внешний вид") {
+                section(title: "Appearance") {
                     HStack {
-                        Text("Плотность фона")
+                        Text("Background density")
                         Spacer()
                         Picker("", selection: $settings.panelMaterial) {
                             ForEach(PanelMaterial.allCases) { option in
@@ -77,28 +93,28 @@ struct SettingsView: View {
                     }
                 }
 
-                section(title: "Превью ссылок") {
+                section(title: "Link previews") {
                     Toggle(isOn: $settings.linkPreviewsEnabled) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Показывать превью ссылок")
-                            Text("Подгружает заголовок, описание и картинку. Не работает для локальных/приватных адресов.")
+                            Text("Show link previews")
+                            Text("Loads the title, description, and image. Doesn't work for local/private addresses.")
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
                         }
                     }
                 }
 
-                section(title: "Глобальный хоткей") {
+                section(title: "Global hotkey") {
                     HStack {
-                        Text("Открыть панель")
+                        Text("Open panel")
                         Spacer()
                         KeyboardShortcuts.Recorder(for: .togglePanel)
                     }
                 }
 
-                section(title: "Клавиши в панели") {
+                section(title: "Keys in the panel") {
                     VStack(alignment: .leading, spacing: 10) {
-                        ForEach(Self.panelShortcuts, id: \.label) { row in
+                        ForEach(Array(Self.panelShortcuts.enumerated()), id: \.offset) { _, row in
                             shortcutRow(label: row.label, keys: row.keys)
                         }
                     }
@@ -106,7 +122,7 @@ struct SettingsView: View {
 
                 section(title: "FAQ") {
                     VStack(alignment: .leading, spacing: 12) {
-                        ForEach(Self.faqEntries, id: \.q) { entry in
+                        ForEach(Array(Self.faqEntries.enumerated()), id: \.offset) { _, entry in
                             faqItem(q: entry.q, a: entry.a)
                         }
                     }
@@ -114,7 +130,7 @@ struct SettingsView: View {
         }
     }
 
-    private func shortcutRow(label: String, keys: [String]) -> some View {
+    private func shortcutRow(label: LocalizedStringKey, keys: [String]) -> some View {
         HStack {
             Text(label)
             Spacer()
@@ -137,7 +153,7 @@ struct SettingsView: View {
         }
     }
 
-    private func faqItem(q: String, a: String) -> some View {
+    private func faqItem(q: LocalizedStringKey, a: LocalizedStringKey) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(q)
                 .font(.system(size: 13, weight: .semibold))
@@ -150,7 +166,7 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func section<Content: View>(
-        title: String,
+        title: LocalizedStringKey,
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -169,38 +185,96 @@ struct SettingsView: View {
 
     // Глифы команд над элементом берём из PanelCommand, чтобы FAQ, контекстное
     // меню и PanelKeyMonitor не разъезжались.
-    private static let panelShortcuts: [(label: String, keys: [String])] = [
-        ("Навигация по списку", ["↑", "↓"]),
-        ("Переключение вкладок", ["←", "→"]),
-        ("Вставить в предыдущее окно", PanelCommand.paste.shortcutGlyphs),
-        ("Скопировать в буфер без вставки", PanelCommand.copyOnly.shortcutGlyphs),
-        ("Открыть ссылку в браузере", PanelCommand.openURL.shortcutGlyphs),
-        ("Избранное", PanelCommand.favorite.shortcutGlyphs),
-        ("Дублировать", PanelCommand.clone.shortcutGlyphs),
-        ("Редактировать текст", PanelCommand.edit.shortcutGlyphs),
-        ("Комментарий", PanelCommand.comment.shortcutGlyphs),
-        ("Удалить элемент", PanelCommand.delete.shortcutGlyphs),
-        ("Quick Look для изображений", PanelCommand.quickLook.shortcutGlyphs),
-        ("Открыть настройки", ["⌘", ","]),
-        ("Скрыть панель", ["⎋"])
+    private static let panelShortcuts: [(label: LocalizedStringKey, keys: [String])] = [
+        ("List navigation", ["↑", "↓"]),
+        ("Switch tabs", ["←", "→"]),
+        ("Paste into the previous window", PanelCommand.paste.shortcutGlyphs),
+        ("Copy to clipboard without pasting", PanelCommand.copyOnly.shortcutGlyphs),
+        ("Open link in browser", PanelCommand.openURL.shortcutGlyphs),
+        ("Favorites", PanelCommand.favorite.shortcutGlyphs),
+        ("Duplicate", PanelCommand.clone.shortcutGlyphs),
+        ("Edit text", PanelCommand.edit.shortcutGlyphs),
+        ("Comment", PanelCommand.comment.shortcutGlyphs),
+        ("Delete item", PanelCommand.delete.shortcutGlyphs),
+        ("Quick Look for images", PanelCommand.quickLook.shortcutGlyphs),
+        ("Open settings", ["⌘", ","]),
+        ("Hide panel", ["⎋"])
     ]
 
-    private static let faqEntries: [(q: String, a: String)] = [
+    private static let faqEntries: [(q: LocalizedStringKey, a: LocalizedStringKey)] = [
         (
-            "Как быстро найти ссылку?",
-            "Префикс @ в поиске поднимает URL-результаты вверх: «@github» сначала покажет совпадения по ссылкам. Одиночный «@» выводит все ссылки по свежести."
+            "How do I find a link quickly?",
+            "The @ prefix in search pushes URL results to the top: \"@github\" shows link matches first. A lone \"@\" lists all links by recency."
         ),
         (
-            "Как разрешить автоматическую вставку?",
-            "Системные настройки → Приватность и безопасность → Универсальный доступ, включи MaCopy. Без этого содержимое копируется в буфер, но ⌘V симулироваться не будет."
+            "How do I allow automatic pasting?",
+            "System Settings → Privacy & Security → Accessibility, enable MaCopy. Without it, content is copied to the clipboard, but ⌘V won't be simulated."
         ),
         (
-            "Где хранятся данные?",
-            "~/Library/Application Support/MaCopy. SwiftData SQLite-база + картинки в отдельных файлах."
+            "Where is data stored?",
+            "~/Library/Application Support/MaCopy. A SwiftData SQLite database plus images in separate files."
         ),
         (
-            "Как исключить приложение?",
-            "MaCopy уважает pasteboard.org-типы (ConcealedType, AutoGeneratedType, TransientType) и специфичные типы 1Password/Bitwarden."
+            "How do I exclude an app?",
+            "MaCopy respects pasteboard.org types (ConcealedType, AutoGeneratedType, TransientType) and 1Password/Bitwarden-specific types."
         )
     ]
+
+    // MARK: - Language picker
+
+    struct LanguageOption: Identifiable {
+        let code: String
+        let name: String
+        var id: String { code }
+    }
+
+    static let languageOptions: [LanguageOption] = [
+        .init(code: "en", name: "English"),
+        .init(code: "ru", name: "Русский"),
+        .init(code: "zh-Hans", name: "简体中文"),
+        .init(code: "ja", name: "日本語"),
+        .init(code: "ko", name: "한국어"),
+        .init(code: "de", name: "Deutsch"),
+        .init(code: "fr", name: "Français"),
+        .init(code: "es", name: "Español"),
+        .init(code: "it", name: "Italiano"),
+        .init(code: "pt-BR", name: "Português (Brasil)"),
+        .init(code: "tr", name: "Türkçe"),
+        .init(code: "pl", name: "Polski")
+    ]
+
+    /// Wraps `settings.appLanguage` so changing the picker also offers a
+    /// relaunch, which is when an `AppleLanguages` override actually takes hold.
+    private var languageBinding: Binding<String> {
+        Binding(
+            get: { settings.appLanguage },
+            set: { newValue in
+                guard newValue != settings.appLanguage else { return }
+                settings.appLanguage = newValue
+                promptRelaunch()
+            }
+        )
+    }
+
+    @MainActor
+    private func promptRelaunch() {
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Restart required")
+        alert.informativeText = String(localized: "The language change will take effect after MaCopy restarts.")
+        alert.addButton(withTitle: String(localized: "Restart now"))
+        alert.addButton(withTitle: String(localized: "Later"))
+        if alert.runModal() == .alertFirstButtonReturn {
+            relaunchApp()
+        }
+    }
+
+    @MainActor
+    private func relaunchApp() {
+        let bundleURL = Bundle.main.bundleURL
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        task.arguments = ["-n", bundleURL.path]
+        try? task.run()
+        NSApp.terminate(nil)
+    }
 }
