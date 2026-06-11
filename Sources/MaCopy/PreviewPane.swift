@@ -7,6 +7,12 @@ struct PreviewPane: View {
     // OCR may exceed it, so load the full record by id off-main; until it lands the
     // capped excerpt is shown. `.text` editing is handled inside TextBodyEditor.
     @State private var fullItem: ClipboardItemRecord?
+    // Downsampled preview image, decoded off-main (full-res decode of a 5K screenshot
+    // would freeze the main thread on every arrow-key move).
+    @State private var previewImage: NSImage?
+
+    private static let previewMaxPixel = 880
+    private static let codePreviewCap = 10_000
 
     private static let relativeFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
@@ -24,13 +30,39 @@ struct PreviewPane: View {
     }
 
     private func loadFullIfNeeded(_ item: ClipboardItemRecord) async {
+        previewImage = nil
         guard item.kind == .code || item.kind == .image else { return }
         let id = item.id
+
+        if item.kind == .image, let path = item.imagePath {
+            let maxPixel = Self.previewMaxPixel
+            if let cached = ImageCache.clipboardPreviewCached(filename: path, maxPixelSize: maxPixel) {
+                previewImage = cached
+            } else if let decoded = await Task.detached(priority: .userInitiated, operation: {
+                ImageCache.downsampledImage(filename: path, maxPixelSize: maxPixel)
+            }).value {
+                guard item.id == id else { return }
+                ImageCache.storeClipboardPreview(decoded.image, filename: path, maxPixelSize: maxPixel)
+                previewImage = decoded.image
+            }
+            guard item.id == id else { return }
+        }
+
         let record = await Task.detached(priority: .userInitiated) {
             try? ClipboardItemRepository.findItem(byID: id)
         }.value
         guard item.id == id else { return }
         fullItem = record
+    }
+
+    /// Cap the rendered code preview: a SwiftUI Text in a ScrollView lays out the whole
+    /// string, so a multi-MB clip freezes for seconds. O(cap), not O(text.count).
+    private func cappedCode(_ text: String) -> String {
+        if let end = text.index(text.startIndex, offsetBy: Self.codePreviewCap, limitedBy: text.endIndex),
+           end < text.endIndex {
+            return String(text[..<end]) + "\n\n… (truncated)"
+        }
+        return text
     }
 
     private func fullText(_ item: ClipboardItemRecord) -> String {
@@ -76,7 +108,7 @@ struct PreviewPane: View {
         case .color:
             colorBody(for: item)
         case .code:
-            textBody(fullText(item), monospaced: true)
+            textBody(cappedCode(fullText(item)), monospaced: true)
         case .url:
             urlBody(for: item)
         case .text:
@@ -101,13 +133,17 @@ struct PreviewPane: View {
 
     private func imageBody(for item: ClipboardItemRecord) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            if let path = item.imagePath,
-               let image = ImageCache.clipboardImage(filename: path) {
+            if let image = previewImage {
                 Image(nsImage: image)
                     .resizable()
                     .scaledToFit()
                     .frame(maxWidth: .infinity, maxHeight: 220)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
+            } else {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.secondary.opacity(0.1))
+                    .frame(maxWidth: .infinity, minHeight: 120, maxHeight: 220)
+                    .overlay(ProgressView().controlSize(.small))
             }
             if item.imageWidth > 0 {
                 Text("\(item.imageWidth) × \(item.imageHeight)")

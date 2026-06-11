@@ -25,6 +25,9 @@ struct ContentView: View {
     @State private var lastAppliedStructuralHash: Int? = nil
     @State private var minuteTick = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
     @State private var searchTask: Task<Void, Never>?
+    // Held so a superseded scoring run can be cancelled - Task.detached is not a child
+    // of searchTask, so cancelling searchTask alone leaves stale scans running.
+    @State private var scoringTask: Task<[SearchEngine.ScoredResult], Never>?
     @ObservedObject private var settings = AppSettings.shared
     @ObservedObject private var uiState = UIState.shared
     @State private var keyMonitor: PanelKeyMonitor?
@@ -227,12 +230,18 @@ struct ContentView: View {
         }
         let currentTab = tab
         let previews = store.previewsByHash
-        let inputs = SearchEngine.makeInputs(items: allItems, tab: currentTab, previewsByHash: previews)
+        let items = allItems
         let q = parsed.text
         let urlFirst = parsed.urlFirst
-        let scored = await Task.detached(priority: .userInitiated) { [q, inputs, urlFirst] in
-            SearchEngine.performScoring(inputs: inputs, query: q, urlFirst: urlFirst)
-        }.value
+        // makeInputs (filter + per-URL SHA256 + string allocs) runs off-main too, so a
+        // keystroke never touches the corpus on the main thread.
+        scoringTask?.cancel()
+        let task = Task.detached(priority: .userInitiated) { [items, currentTab, previews, q, urlFirst] in
+            let inputs = SearchEngine.makeInputs(items: items, tab: currentTab, previewsByHash: previews)
+            return SearchEngine.performScoring(inputs: inputs, query: q, urlFirst: urlFirst)
+        }
+        scoringTask = task
+        let scored = await task.value
         if Task.isCancelled { return }
         guard SearchEngine.parseQuery(query) == parsed,
               currentTab == tab
@@ -374,6 +383,7 @@ struct ContentView: View {
 
     private func kickRecompute(forceFirst: Bool, debounce: Bool, onApplied: (@MainActor () -> Void)? = nil) {
         searchTask?.cancel()
+        scoringTask?.cancel()
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         if q.isEmpty && !debounce {
             applyEmptyQuery(forceFirst: forceFirst)
@@ -382,7 +392,7 @@ struct ContentView: View {
         }
         searchTask = Task { @MainActor in
             if debounce {
-                try? await Task.sleep(for: .milliseconds(20))
+                try? await Task.sleep(for: .milliseconds(90))
                 if Task.isCancelled { return }
             }
             await recomputeAsync(forceFirst: forceFirst)
