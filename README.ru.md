@@ -1,5 +1,9 @@
 [English](./README.md) | **Русский**
 
+<p align="center">
+  <img src="./brand/logo.png" alt="MaCopy logo" width="128" height="128">
+</p>
+
 # MaCopy by ilkome
 
 Менеджер буфера обмена для macOS. Живёт в строке меню, глобальный хоткей (по умолчанию **⌘`**, настраивается) открывает плавающую панель с историей.

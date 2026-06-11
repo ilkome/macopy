@@ -1,5 +1,9 @@
 **English** | [Русский](./README.ru.md)
 
+<p align="center">
+  <img src="./brand/logo.png" alt="MaCopy logo" width="128" height="128">
+</p>
+
 # MaCopy by ilkome
 
 A clipboard manager for macOS. Lives in the menu bar; a global hotkey (default **⌘`**, customizable) opens a floating panel with the history.
