@@ -1,0 +1,52 @@
+---
+import PanelMockup from "./PanelMockup.astro";
+import Icon from "./Icon.astro";
+import { DOWNLOAD, REPO } from "./links";
+---
+
+<section
+  id="top"
+  style="background: var(--color-parchment); padding-top: clamp(72px, 12vh, 132px); padding-bottom: clamp(64px, 10vh, 120px); overflow: hidden;"
+>
+  <div
+    class="hero-grid"
+    style="max-width: 1080px; margin: 0 auto; padding: 0 24px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(32px, 5vw, 64px); align-items: center;"
+  >
+    <div class="reveal">
+      <span
+        class="t-caption"
+        style="display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 9999px; background: #fff; border: 1px solid var(--color-hairline); color: var(--color-ink-80); margin-bottom: 22px;"
+      >
+        <span style="width: 7px; height: 7px; border-radius: 9999px; background: #34c759;"></span>
+        Open source · macOS native
+      </span>
+
+      <h1 class="t-hero" style="max-width: 14ch;">Your clipboard, but with a memory.</h1>
+
+      <p class="t-lead" style="color: var(--color-ink-80); margin-top: 22px; max-width: 30ch;">
+        A native macOS clipboard manager. Lives in the menu bar. Opens with{" "}
+        <kbd
+          style="font-family: var(--font-mono); font-size: 0.82em; padding: 2px 8px; border-radius: 8px; background: #fff; border: 1px solid var(--color-hairline);"
+        >⌘`</kbd>{" "}
+        - pastes with Enter.
+      </p>
+
+      <div style="display: flex; flex-wrap: wrap; gap: 14px; margin-top: 32px;">
+        <a href={DOWNLOAD} class="btn btn-primary">
+          <Icon name="download" /> Download .dmg
+        </a>
+        <a href={REPO} target="_blank" rel="noreferrer" class="btn btn-ghost">
+          <Icon name="github" /> View on GitHub
+        </a>
+      </div>
+
+      <p class="t-fine" style="color: var(--color-ink-48); margin-top: 18px;">
+        macOS 14 Sonoma or newer · Free · Open source (MIT)
+      </p>
+    </div>
+
+    <div class="reveal" style="display: flex; justify-content: center; animation-delay: 120ms;">
+      <PanelMockup />
+    </div>
+  </div>
+</section>

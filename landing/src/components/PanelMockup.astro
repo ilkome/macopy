@@ -1,0 +1,171 @@
+---
+// A faithful recreation of MaCopy's floating NSPanel - this is the hero
+// "product render". It carries the single system drop-shadow.
+const TABS = ["Favorites", "All", "URLs", "Images", "Colors", "Code"];
+
+type Item = {
+  app: string;
+  appColor: string;
+  glyph: string;
+  preview: string;
+  kind?: "url" | "color" | "code" | "image" | "text";
+  meta: string;
+  swatch?: string;
+};
+
+const ITEMS: Item[] = [
+  {
+    app: "Safari",
+    appColor: "#1d9bf0",
+    glyph: "S",
+    preview: "https://developer.apple.com/design/human-interface-guidelines",
+    kind: "url",
+    meta: "Human Interface Guidelines - Apple Developer",
+  },
+  {
+    app: "VS Code",
+    appColor: "#2f7bd6",
+    glyph: "{ }",
+    preview: "const panel = NSPanel(.nonactivatingPanel)",
+    kind: "code",
+    meta: "MaCopyPanel.swift",
+  },
+  {
+    app: "Figma",
+    appColor: "#a259ff",
+    glyph: "F",
+    preview: "#5E5CE6",
+    kind: "color",
+    meta: "Brand / Indigo",
+    swatch: "#5E5CE6",
+  },
+  {
+    app: "Notes",
+    appColor: "#febc2e",
+    glyph: "N",
+    preview: "Pick up oat milk, sparkling water, and a clipboard manager.",
+    kind: "text",
+    meta: "Shopping list",
+  },
+  {
+    app: "Terminal",
+    appColor: "#1d1d1f",
+    glyph: ">_",
+    preview: './build-app.sh && open "MaCopy by ilkome.app"',
+    kind: "code",
+    meta: "zsh - macopy",
+  },
+];
+
+const mono = "var(--font-mono)";
+---
+
+<div
+  role="img"
+  aria-label="The MaCopy floating panel showing clipboard history with tabs for Favorites, All, URLs, Images, Colors and Code."
+  style="width: 100%; max-width: 440px; border-radius: 18px; background: rgba(250, 250, 252, 0.86); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border: 1px solid rgba(0,0,0,0.06); box-shadow: var(--shadow-product); overflow: hidden; user-select: none;"
+>
+  {/* Search field - pill, matching the CTA grammar */}
+  <div style="padding: 14px 14px 8px;">
+    <div
+      style="display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 14px; border-radius: 9999px; background: #fff; border: 1px solid rgba(0,0,0,0.08);"
+    >
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#7a7a7a" stroke-width="2" stroke-linecap="round">
+        <circle cx="11" cy="11" r="6.5"></circle>
+        <path d="m20 20-3.6-3.6"></path>
+      </svg>
+      <span class="t-caption" style="color: #7a7a7a;">Search history</span>
+      <span
+        aria-hidden="true"
+        style="margin-left: auto; width: 1.5px; height: 16px; background: #0066cc; animation: mc-caret 1.1s steps(1) infinite;"
+      ></span>
+    </div>
+  </div>
+
+  {/* Tabs */}
+  <div style="display: flex; gap: 6px; padding: 0 14px 12px; overflow: hidden;">
+    {
+      TABS.map((t, i) => (
+        <span
+          class="t-fine"
+          style={`font-weight: ${i === 1 ? 600 : 400}; padding: 5px 10px; border-radius: 9999px; color: ${i === 1 ? "#fff" : "#333"}; background: ${i === 1 ? "#0066cc" : "rgba(0,0,0,0.05)"};`}
+        >
+          {t}
+        </span>
+      ))
+    }
+  </div>
+
+  {/* History list */}
+  <div style="padding: 0 8px 10px;">
+    {
+      ITEMS.map((it, i) => {
+        const selected = i === 0;
+        const isMono = it.kind === "code" || it.kind === "color";
+        return (
+          <div
+            style={`display: flex; gap: 11px; align-items: flex-start; padding: 10px 12px; border-radius: 11px; background: ${selected ? "#0066cc" : "transparent"}; color: ${selected ? "#fff" : "#1d1d1f"};`}
+          >
+            {it.swatch ? (
+              <span
+                style={`flex: 0 0 auto; width: 26px; height: 26px; border-radius: 7px; background: ${it.swatch}; border: 1px solid rgba(0,0,0,0.12);`}
+              />
+            ) : (
+              <span
+                style={`flex: 0 0 auto; width: 26px; height: 26px; border-radius: 7px; background: ${it.appColor}; color: #fff; display: grid; place-items: center; font-family: ${mono}; font-size: 11px; font-weight: 600;`}
+              >
+                {it.glyph}
+              </span>
+            )}
+
+            <span style="min-width: 0; flex: 1;">
+              <span
+                style={`display: block; font-family: ${isMono ? mono : "var(--font-text)"}; font-size: ${isMono ? 13 : 14}px; font-weight: 400; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;`}
+              >
+                {it.preview}
+              </span>
+              <span
+                class="t-fine"
+                style={`display: flex; align-items: center; gap: 7px; margin-top: 4px; color: ${selected ? "rgba(255,255,255,0.78)" : "#7a7a7a"};`}
+              >
+                <span>{it.app}</span>
+                <span style="opacity: 0.5;">·</span>
+                <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  {it.meta}
+                </span>
+              </span>
+            </span>
+
+            <span style="flex: 0 0 auto; padding-top: 2px;">
+              {selected ? (
+                <span
+                  class="t-fine"
+                  style="font-family: var(--font-mono); font-size: 11px; color: rgba(255,255,255,0.9); border: 1px solid rgba(255,255,255,0.4); border-radius: 5px; padding: 2px 6px;"
+                >
+                  ↵
+                </span>
+              ) : it.kind && it.kind !== "text" ? (
+                <span
+                  class="t-fine"
+                  style="font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.04em; color: #7a7a7a; border: 1px solid rgba(0,0,0,0.10); border-radius: 5px; padding: 2px 5px;"
+                >
+                  {it.kind.toUpperCase()}
+                </span>
+              ) : null}
+            </span>
+          </div>
+        );
+      })
+    }
+  </div>
+
+  {/* Footer hint strip */}
+  <div
+    style="display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-top: 1px solid rgba(0,0,0,0.06); color: #7a7a7a;"
+  >
+    <span class="t-fine">↵ Paste</span>
+    <span class="t-fine">⇧↵ Copy</span>
+    <span class="t-fine">⌘S Favorite</span>
+    <span class="t-fine" style="margin-left: auto;">5 items</span>
+  </div>
+</div>

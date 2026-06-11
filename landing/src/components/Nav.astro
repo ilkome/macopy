@@ -1,0 +1,58 @@
+---
+import Logo from "./Logo.astro";
+import Icon from "./Icon.astro";
+import { DOWNLOAD, REPO } from "./links";
+
+const SECTIONS = [
+  { id: "features", label: "Features" },
+  { id: "shortcuts", label: "Shortcuts" },
+  { id: "how", label: "How it works" },
+  { id: "install", label: "Install" },
+];
+---
+
+<header class="site-header" data-header>
+  <div
+    style="max-width: 1080px; margin: 0 auto; height: 100%; padding: 0 24px; display: flex; align-items: center; gap: 20px;"
+  >
+    <a
+      href="#top"
+      style="display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--color-ink);"
+    >
+      <span style="border-radius: 8px; overflow: hidden; display: block; width: 26px; height: 26px;">
+        <Logo size={26} />
+      </span>
+      <span class="t-tagline" style="font-size: 19px;">MaCopy</span>
+    </a>
+
+    <nav class="t-caption" style="display: flex; gap: 26px; margin-left: 8px;" data-nav>
+      {
+        SECTIONS.map((s) => (
+          <a
+            href={`#${s.id}`}
+            class="nav-link"
+            style="color: var(--color-ink-80); text-decoration: none;"
+          >
+            {s.label}
+          </a>
+        ))
+      }
+    </nav>
+
+    <div style="margin-left: auto; display: flex; align-items: center; gap: 14px;">
+      <a
+        href={REPO}
+        target="_blank"
+        rel="noreferrer"
+        aria-label="MaCopy on GitHub"
+        class="nav-gh"
+        style="color: var(--color-ink); display: flex;"
+      >
+        <Icon name="github" />
+      </a>
+      <a href={DOWNLOAD} class="btn btn-primary" style="padding: 7px 16px; font-size: 14px;">
+        Download
+      </a>
+    </div>
+  </div>
+</header>

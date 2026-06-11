@@ -25,9 +25,11 @@
   --color-body-muted: #cccccc;
   --color-hairline: #e0e0e0;
 
-  --font-display: "SF Pro Display", system-ui, -apple-system, "Inter",
-    sans-serif;
-  --font-text: "SF Pro Text", system-ui, -apple-system, "Inter", sans-serif;
+  /* SF Pro on Apple; everywhere else the brand font is self-hosted Inter
+     (var --font-inter, injected by Astro's Fonts API), with system-ui +
+     sans-serif tucked inside it as the deep fallback. */
+  --font-display: "SF Pro Display", -apple-system, var(--font-inter);
+  --font-text: "SF Pro Text", -apple-system, var(--font-inter);
   --font-mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
 
   --radius-sm: 8px;
@@ -36,6 +38,10 @@
 
   /* The single drop-shadow in the entire system - product imagery only. */
   --shadow-product: 3px 5px 30px 0 rgba(0, 0, 0, 0.22);
+
+  /* Strong custom easings - built-in CSS curves lack punch (Emil Kowalski). */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
 }
 
 html {
@@ -128,7 +134,7 @@ body {
     border-radius: 9999px;
     padding: 11px 22px;
     transition:
-      transform 0.18s ease,
+      transform 0.14s var(--ease-out),
       background-color 0.18s ease,
       color 0.18s ease,
       border-color 0.18s ease;
@@ -219,6 +225,28 @@ body {
   }
 }
 
+/* ----------------------------------------------------------------------------
+   Sticky nav - the blur/background fade in once the page is scrolled. A 4-line
+   inline script toggles `.scrolled`; the visual transition lives here.
+---------------------------------------------------------------------------- */
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  height: 52px;
+  background: rgba(245, 245, 247, 0);
+  border-bottom: 1px solid transparent;
+  transition:
+    background 0.3s ease,
+    border-color 0.3s ease;
+}
+.site-header.scrolled {
+  background: rgba(245, 245, 247, 0.8);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+
 /* Section reveal */
 @keyframes rise {
   from {
@@ -247,15 +275,28 @@ body {
   }
 }
 
-/* Hover states for nav and footer links */
-.nav-link:hover {
-  color: var(--color-ink) !important;
+/* Base transitions so hover/scroll states ease in rather than snap */
+.nav-link {
+  transition: color 0.18s ease;
 }
-.nav-gh:hover {
-  opacity: 0.65;
+.nav-gh {
+  transition: opacity 0.18s ease;
 }
-.footer-link:hover {
-  color: var(--color-primary) !important;
+.footer-link {
+  transition: color 0.18s ease;
+}
+
+/* Gate hover behind a real pointer - touch taps shouldn't stick a hover state */
+@media (hover: hover) and (pointer: fine) {
+  .nav-link:hover {
+    color: var(--color-ink) !important;
+  }
+  .nav-gh:hover {
+    opacity: 0.65;
+  }
+  .footer-link:hover {
+    color: var(--color-primary) !important;
+  }
 }
 
 /* ----------------------------------------------------------------------------

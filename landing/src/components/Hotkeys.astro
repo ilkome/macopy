@@ -1,0 +1,51 @@
+---
+const KEYS: [string, string][] = [
+  ["⌘`", "Show / hide panel (configurable)"],
+  ["↑ ↓", "Navigate the list"],
+  ["← →", "Switch tabs"],
+  ["↵", "Paste into the previous app"],
+  ["⇧ ↵", "Copy without pasting"],
+  ["⌘ S", "Toggle favorite"],
+  ["⌘ E", "Edit comment"],
+  ["⌘ ⌫", "Delete from history"],
+  ["Space", "Quick Look for images"],
+  ["Esc", "Hide the panel"],
+];
+---
+
+<section
+  id="shortcuts"
+  style="background: var(--color-tile-1); color: #fff; padding: clamp(72px, 10vw, 112px) 0;"
+>
+  <div style="max-width: 1080px; margin: 0 auto; padding: 0 24px;">
+    <div class="reveal" style="max-width: 26ch; margin-bottom: 48px;">
+      <h2 class="t-display">Built for hands that never leave the keyboard.</h2>
+      <p class="t-body" style="color: var(--color-body-muted); margin-top: 16px;">
+        Open, search, paste - the whole loop happens before your fingers reach
+        the trackpad.
+      </p>
+    </div>
+
+    <div
+      class="reveal hotkey-grid"
+      style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 56px; animation-delay: 80ms;"
+    >
+      {
+        KEYS.map(([k, action], i) => (
+          <div
+            style={`display: flex; align-items: center; gap: 16px; padding: 15px 0; border-top: ${i < 2 ? "none" : "1px solid rgba(255,255,255,0.08)"};`}
+          >
+            <span style="display: flex; gap: 6px; flex: 0 0 96px;">
+              {k.split(" ").map((part) => (
+                <kbd class="kbd">{part}</kbd>
+              ))}
+            </span>
+            <span class="t-body" style="color: var(--color-body-muted);">
+              {action}
+            </span>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>

@@ -1,0 +1,59 @@
+---
+import Logo from "./Logo.astro";
+import { LICENSE, RELEASES, REPO, SITE, VERSION } from "./links";
+
+const LINKS = [
+  { label: "GitHub", href: REPO },
+  { label: "Releases", href: RELEASES },
+  { label: "License (MIT)", href: LICENSE },
+  { label: "ilkome.com", href: SITE },
+];
+---
+
+<footer style="background: var(--color-parchment); padding: 64px 0 40px;">
+  <div style="max-width: 1080px; margin: 0 auto; padding: 0 24px;">
+    <div
+      class="footer-row"
+      style="display: flex; align-items: flex-start; justify-content: space-between; gap: 32px; flex-wrap: wrap;"
+    >
+      <div style="max-width: 32ch;">
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
+          <span style="border-radius: 9px; overflow: hidden; display: block; width: 34px; height: 34px;">
+            <Logo size={34} />
+          </span>
+          <span class="t-tagline">MaCopy</span>
+        </div>
+        <p class="t-caption" style="color: var(--color-ink-48);">
+          A clipboard manager for macOS. There's only one system clipboard -
+          MaCopy just remembers what was on it.
+        </p>
+      </div>
+
+      <nav style="display: flex; gap: 48px; flex-wrap: wrap;">
+        <div style="display: flex; flex-direction: column;">
+          <span class="t-caption" style="font-weight: 600; margin-bottom: 8px;">Project</span>
+          {
+            LINKS.map((l) => (
+              <a
+                href={l.href}
+                target="_blank"
+                rel="noreferrer"
+                class="t-body footer-link"
+                style="color: var(--color-ink-80); text-decoration: none; line-height: 2.1;"
+              >
+                {l.label}
+              </a>
+            ))
+          }
+        </div>
+      </nav>
+    </div>
+
+    <div
+      style="margin-top: 48px; padding-top: 22px; border-top: 1px solid var(--color-hairline); display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap;"
+    >
+      <span class="t-fine" style="color: var(--color-ink-48);">© 2026 ilkome · v{VERSION}</span>
+      <span class="t-fine" style="color: var(--color-ink-48);">Made on a Mac, for the Mac.</span>
+    </div>
+  </div>
+</footer>
