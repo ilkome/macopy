@@ -3,6 +3,11 @@ import SwiftUI
 struct PreviewPane: View {
     let item: ClipboardItemRecord?
 
+    // The list record carries only a capped text/ocr excerpt. Code preview and image
+    // OCR may exceed it, so load the full record by id off-main; until it lands the
+    // capped excerpt is shown. `.text` editing is handled inside TextBodyEditor.
+    @State private var fullItem: ClipboardItemRecord?
+
     private static let relativeFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
         f.unitsStyle = .abbreviated
@@ -12,9 +17,30 @@ struct PreviewPane: View {
     var body: some View {
         if let item {
             content(for: item)
+                .task(id: item.id) { await loadFullIfNeeded(item) }
         } else {
             placeholder
         }
+    }
+
+    private func loadFullIfNeeded(_ item: ClipboardItemRecord) async {
+        guard item.kind == .code || item.kind == .image else { return }
+        let id = item.id
+        let record = await Task.detached(priority: .userInitiated) {
+            try? ClipboardItemRepository.findItem(byID: id)
+        }.value
+        guard item.id == id else { return }
+        fullItem = record
+    }
+
+    private func fullText(_ item: ClipboardItemRecord) -> String {
+        if fullItem?.id == item.id, let t = fullItem?.text { return t }
+        return item.text ?? item.preview
+    }
+
+    private func fullOCR(_ item: ClipboardItemRecord) -> String? {
+        if fullItem?.id == item.id { return fullItem?.ocrText }
+        return item.ocrText
     }
 
     private var placeholder: some View {
@@ -50,7 +76,7 @@ struct PreviewPane: View {
         case .color:
             colorBody(for: item)
         case .code:
-            textBody(item.text ?? item.preview, monospaced: true)
+            textBody(fullText(item), monospaced: true)
         case .url:
             urlBody(for: item)
         case .text:
@@ -88,7 +114,7 @@ struct PreviewPane: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            if let ocr = item.ocrText, !ocr.isEmpty {
+            if let ocr = fullOCR(item), !ocr.isEmpty {
                 Divider().opacity(0.3)
                 Text("OCR")
                     .font(.caption2)

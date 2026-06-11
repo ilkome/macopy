@@ -35,7 +35,10 @@ final class Paster {
             pb.clearContents()
             guard pb.writeObjects([image]) else { return false }
         default:
-            guard let text = item.text, !text.isEmpty else { return false }
+            // The list record carries only a capped text excerpt; load the full text
+            // by id so long clips are pasted in full.
+            let fullText = (try? ClipboardItemRepository.findItem(byID: item.id))?.text ?? item.text
+            guard let text = fullText, !text.isEmpty else { return false }
             pb.clearContents()
             pb.setString(text, forType: .string)
         }

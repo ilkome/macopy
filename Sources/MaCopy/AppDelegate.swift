@@ -60,6 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func showPanel() {
         guard let panel else { return }
+        UIState.shared.isPanelVisible = true
         Paster.shared.previousApp = NSWorkspace.shared.frontmostApplication
         if let screen = NSScreen.main {
             let frame = panel.frame
@@ -73,6 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func hidePanel() {
         UIState.shared.showSettings = false
+        UIState.shared.isPanelVisible = false
         panel?.orderOut(nil)
     }
 }

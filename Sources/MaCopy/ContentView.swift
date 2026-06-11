@@ -189,6 +189,9 @@ struct ContentView: View {
                 }
             }
             .onChange(of: allItemsSignature) { _, _ in
+                // Skip while hidden: reopening rebuilds from fresh store.items via
+                // resetToTop, so background writes don't drive O(n) recomputes off-screen.
+                guard uiState.isPanelVisible else { return }
                 kickRecompute(forceFirst: false, debounce: false)
             }
             .onReceive(minuteTick) { _ in
@@ -237,6 +240,19 @@ struct ContentView: View {
         applyScored(scored, q: q, urlFirst: urlFirst, forceFirst: forceFirst)
     }
 
+    /// Cheap reconcile check: avoids a full Equatable memcmp of `text`/`ocrText`.
+    /// Covers every mutation path - updateText bumps updatedAt+contentHash, while
+    /// favorite/comment/ocr edits don't touch updatedAt, so each is compared directly.
+    private func rowItemUnchanged(_ a: ClipboardItemRecord, _ b: ClipboardItemRecord) -> Bool {
+        a.id == b.id
+            && a.updatedAt == b.updatedAt
+            && a.contentHash == b.contentHash
+            && a.isFavorite == b.isFavorite
+            && a.comment == b.comment
+            && a.imagePath == b.imagePath
+            && a.ocrText == b.ocrText
+    }
+
     private func applyEmptyQuery(forceFirst: Bool) {
         let previousById = rowsById
         let built: [RowModel] = allItems
@@ -244,7 +260,7 @@ struct ContentView: View {
             .map { item in
                 if let existing = previousById[item.id] {
                     if existing.match != nil { existing.match = nil }
-                    if existing.item != item { existing.item = item }
+                    if !rowItemUnchanged(existing.item, item) { existing.item = item }
                     return existing
                 }
                 return RowModel(item: item, match: nil)
@@ -260,7 +276,7 @@ struct ContentView: View {
             .map { item in
                 if let existing = previousById[item.id] {
                     if existing.match != nil { existing.match = nil }
-                    if existing.item != item { existing.item = item }
+                    if !rowItemUnchanged(existing.item, item) { existing.item = item }
                     return existing
                 }
                 return RowModel(item: item, match: nil)
@@ -280,7 +296,7 @@ struct ContentView: View {
             let match = SearchMatch(score: r.score, snippet: r.snippet)
             if let existing = previousById[item.id] {
                 if existing.match != match { existing.match = match }
-                if existing.item != item { existing.item = item }
+                if !rowItemUnchanged(existing.item, item) { existing.item = item }
                 built.append(existing)
             } else {
                 built.append(RowModel(item: item, match: match))

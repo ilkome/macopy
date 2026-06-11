@@ -7,6 +7,10 @@ struct TextBodyEditor: View {
     @FocusState private var focused: Bool
     @State private var draft: String
     @State private var saveTask: Task<Void, Never>?
+    // The item carries a capped excerpt; gate saves until the full text is loaded so a
+    // pre-load edit can never persist a truncation.
+    @State private var fullLoaded = false
+    @State private var ignoreNextChange = false
 
     init(item: ClipboardItemRecord) {
         self.item = item
@@ -20,7 +24,21 @@ struct TextBodyEditor: View {
             .focused($focused)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(8)
+            .task(id: item.id) {
+                let id = item.id
+                let full = await Task.detached(priority: .userInitiated) {
+                    try? ClipboardItemRepository.findItem(byID: id)?.text
+                }.value
+                guard !Task.isCancelled else { return }
+                if let full, full != draft {
+                    ignoreNextChange = true
+                    draft = full
+                }
+                fullLoaded = true
+            }
             .onChange(of: draft) { _, newValue in
+                if ignoreNextChange { ignoreNextChange = false; return }
+                guard fullLoaded else { return }
                 saveTask?.cancel()
                 guard !newValue.isEmpty else { return }
                 let itemId = item.id

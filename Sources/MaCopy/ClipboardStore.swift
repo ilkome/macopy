@@ -16,26 +16,43 @@ final class ClipboardStore: ObservableObject {
     private var itemsCancellable: AnyDatabaseCancellable?
     private let recentLimit = 2000
 
+    // List rows only need preview-length data for rendering, sectioning and fuzzy
+    // search; the cap keeps a single multi-MB clip from bloating the published array
+    // and being re-decoded/compared on every write. Full text is loaded by id at
+    // paste time and in the preview pane. The OCR cap matches SearchEngine.makeInputs.
+    nonisolated static let listTextCap = 4096
+    nonisolated static let listOCRCap = 500
+
     private init() {
         startObserving()
     }
 
     func upsertCachedPreview(_ preview: LinkPreviewRecord) {
+        // No dataVersion bump: cards and DomainRow observe previewsByHash directly, so a
+        // preview arriving must not trigger a full O(n) list recompute (each URL fetch
+        // would otherwise cost two passes - pending + finalize).
         previewsByHash[preview.urlHash] = preview
-        dataVersion &+= 1
     }
 
     func removeCachedPreview(forHash hash: String) {
-        guard previewsByHash.removeValue(forKey: hash) != nil else { return }
-        dataVersion &+= 1
+        previewsByHash.removeValue(forKey: hash)
     }
 
     private func startObserving() {
+        // WARNING: these records carry a capped text/ocrText excerpt - never persist
+        // them back. All writes go through ClipboardItemRepository by id + column.
         let itemsObservation = ValueObservation.tracking { [recentLimit] db in
-            try ClipboardItemRecord
-                .order(ClipboardItemRecord.Columns.updatedAt.desc)
-                .limit(recentLimit)
-                .fetchAll(db)
+            try SQLRequest<ClipboardItemRecord>(literal: """
+                SELECT id, createdAt, updatedAt, contentHash, kindRaw,
+                       substr(text, 1, \(ClipboardStore.listTextCap)) AS text,
+                       preview, imagePath, imageWidth, imageHeight,
+                       substr(ocrText, 1, \(ClipboardStore.listOCRCap)) AS ocrText,
+                       sourceAppBundleId, sourceAppName, sourceAppIconPath,
+                       sourceFilePath, byteSize, isFavorite, comment
+                FROM clipboard_items
+                ORDER BY updatedAt DESC
+                LIMIT \(recentLimit)
+                """).fetchAll(db)
         }
         itemsCancellable = itemsObservation.start(
             in: AppDatabase.shared,
