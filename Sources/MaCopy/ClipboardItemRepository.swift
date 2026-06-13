@@ -3,7 +3,17 @@ import GRDB
 import CryptoKit
 
 enum ClipboardItemRepository {
-    private static var pool: DatabasePool { AppDatabase.shared }
+    #if DEBUG
+    /// Tests point this at an in-memory writer; production always uses the shared pool.
+    nonisolated(unsafe) static var poolOverride: DatabaseWriter?
+    #endif
+
+    private static var pool: DatabaseWriter {
+        #if DEBUG
+        if let poolOverride { return poolOverride }
+        #endif
+        return AppDatabase.shared
+    }
 
     static func findItem(byHash hash: String) throws -> ClipboardItemRecord? {
         try pool.read { db in
@@ -28,7 +38,7 @@ enum ClipboardItemRepository {
     }
 
     static func updateUpdatedAt(id: UUID, date: Date = Date()) throws {
-        try pool.write { db in
+        _ = try pool.write { db in
             try ClipboardItemRecord
                 .filter(ClipboardItemRecord.Columns.id == id)
                 .updateAll(db, ClipboardItemRecord.Columns.updatedAt.set(to: date))
@@ -36,7 +46,7 @@ enum ClipboardItemRepository {
     }
 
     static func updateOCR(id: UUID, text: String) throws {
-        try pool.write { db in
+        _ = try pool.write { db in
             try ClipboardItemRecord
                 .filter(ClipboardItemRecord.Columns.id == id)
                 .updateAll(db, ClipboardItemRecord.Columns.ocrText.set(to: text))
@@ -113,7 +123,7 @@ enum ClipboardItemRepository {
     }
 
     static func updateComment(id: UUID, comment: String?) throws {
-        try pool.write { db in
+        _ = try pool.write { db in
             try ClipboardItemRecord
                 .filter(ClipboardItemRecord.Columns.id == id)
                 .updateAll(db, ClipboardItemRecord.Columns.comment.set(to: comment))
@@ -121,7 +131,7 @@ enum ClipboardItemRepository {
     }
 
     static func updateFavorite(id: UUID, isFavorite: Bool) throws {
-        try pool.write { db in
+        _ = try pool.write { db in
             try ClipboardItemRecord
                 .filter(ClipboardItemRecord.Columns.id == id)
                 .updateAll(db, ClipboardItemRecord.Columns.isFavorite.set(to: isFavorite))
@@ -145,11 +155,44 @@ enum ClipboardItemRepository {
         }
     }
 
-    static func urlItems() throws -> [ClipboardItemRecord] {
+    /// Newest URL strings for link-preview backfill. Narrow projection (one column, capped
+    /// window) instead of fetching every URL row's full record over all history.
+    static func recentURLStrings(limit: Int) throws -> [String] {
         try pool.read { db in
-            try ClipboardItemRecord
-                .filter(ClipboardItemRecord.Columns.kindRaw == "url")
-                .fetchAll(db)
+            try String.fetchAll(db, sql: """
+                SELECT COALESCE(text, preview) FROM clipboard_items
+                WHERE kindRaw = 'url'
+                ORDER BY updatedAt DESC
+                LIMIT ?
+                """, arguments: [limit])
+        }
+    }
+
+    /// Every image file referenced by a row. Used to detect orphaned encrypted files on disk.
+    static func allImagePaths() throws -> Set<String> {
+        try pool.read { db in
+            try String.fetchSet(db, sql: "SELECT imagePath FROM clipboard_items WHERE imagePath IS NOT NULL")
+        }
+    }
+
+    /// Deletes non-favorite rows that are not in any folder and fall outside the newest `keep`
+    /// by updatedAt. Returns the image paths of deleted rows so the caller can remove the
+    /// matching encrypted files (and thumbnails) from disk. Favorites and folder members are
+    /// preserved regardless of age (a folder-item delete would cascade away the membership).
+    @discardableResult
+    static func pruneToLimit(keep: Int) throws -> [String] {
+        try pool.write { db in
+            let predicate = """
+                isFavorite = 0
+                AND id NOT IN (SELECT itemId FROM folder_items)
+                AND id NOT IN (SELECT id FROM clipboard_items ORDER BY updatedAt DESC LIMIT ?)
+                """
+            let imagePaths = try String.fetchAll(db, sql: """
+                SELECT imagePath FROM clipboard_items
+                WHERE imagePath IS NOT NULL AND \(predicate)
+                """, arguments: [keep])
+            try db.execute(sql: "DELETE FROM clipboard_items WHERE \(predicate)", arguments: [keep])
+            return imagePaths
         }
     }
 }

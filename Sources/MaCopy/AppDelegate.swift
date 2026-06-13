@@ -43,6 +43,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task.detached(priority: .utility) {
             await OCRService.backfillRedactionsOnceIfNeeded(filterSecrets: filterSecrets)
         }
+
+        // Bound the DB + image directory once at launch, after the backfill scan has settled.
+        Task.detached(priority: .utility) {
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            RetentionService.prune()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

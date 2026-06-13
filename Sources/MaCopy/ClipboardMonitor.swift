@@ -9,6 +9,10 @@ final class ClipboardMonitor {
 
     private var lastChangeCount: Int = 0
     private var timer: Timer?
+    // Prune is O(scan) over the table; amortize it instead of running on every copy. Bounds
+    // the DB to ~itemLimit + this threshold regardless of how long the app stays running.
+    private var insertsSincePrune = 0
+    private static let pruneEveryNInserts = 100
     private let imageExts: Set<String> = ["png", "jpg", "jpeg", "gif", "tiff", "bmp", "heic", "webp"]
     private static let privacyLogger = Logger(subsystem: "dev.ilkome.MaCopy", category: "privacy.filter")
 
@@ -150,6 +154,7 @@ final class ClipboardMonitor {
             byteSize: text.utf8.count
         )
         try? ClipboardItemRepository.insertItem(item)
+        notePotentialPrune()
 
         if kind == .url {
             LinkPreviewService.shared.fetchIfNeeded(for: text)
@@ -198,6 +203,7 @@ final class ClipboardMonitor {
             byteSize: data.count
         )
         try? ClipboardItemRepository.insertItem(item)
+        notePotentialPrune()
 
         if AppSettings.shared.ocrEnabled {
             let id = item.id
@@ -206,6 +212,14 @@ final class ClipboardMonitor {
                 await OCRService.process(itemId: id, imagePath: filename, filterSecrets: filterSecrets)
             }
         }
+    }
+
+    /// Amortized retention: every Nth insert, prune the DB + orphaned image files off-main.
+    private func notePotentialPrune() {
+        insertsSincePrune += 1
+        guard insertsSincePrune >= Self.pruneEveryNInserts else { return }
+        insertsSincePrune = 0
+        Task.detached(priority: .utility) { RetentionService.prune() }
     }
 
     private static func dimensions(from data: Data) -> (Int, Int) {
