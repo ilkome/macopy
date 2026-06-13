@@ -5,6 +5,8 @@ struct LinkPreviewCard: View {
     let rawURL: String
 
     @ObservedObject private var store = ClipboardStore.shared
+    @State private var imageData: Data?
+    @State private var iconData: Data?
 
     private var preview: LinkPreviewRecord? {
         store.previewsByHash[URLNormalizer.hash(rawURL)]
@@ -22,6 +24,8 @@ struct LinkPreviewCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .task(id: rawURL) {
+            imageData = nil
+            iconData = nil
             let hash = URLNormalizer.hash(rawURL)
             if store.previewsByHash[hash] == nil,
                let fromDb = try? LinkPreviewRepository.findPreview(byHash: hash) {
@@ -30,10 +34,26 @@ struct LinkPreviewCard: View {
             if preview?.status != .ok {
                 LinkPreviewService.shared.fetchIfNeeded(for: rawURL)
             }
+            await loadBlobs()
+        }
+        .onChange(of: preview?.fetchedAt) {
+            Task { await loadBlobs() }
         }
         .onChange(of: rawURL, initial: false) { oldURL, _ in
             LinkPreviewService.shared.cancel(rawURL: oldURL)
         }
+    }
+
+    /// The image/icon blobs live only in the DB now (stripped from the in-memory map to bound
+    /// session memory), so the card loads them off-main into local state.
+    private func loadBlobs() async {
+        let hash = URLNormalizer.hash(rawURL)
+        let record = await Task.detached(priority: .userInitiated) {
+            try? LinkPreviewRepository.findPreview(byHash: hash)
+        }.value
+        guard hash == URLNormalizer.hash(rawURL) else { return }  // selection moved mid-load
+        imageData = record?.imageData
+        iconData = record?.iconData
     }
 
     @ViewBuilder
@@ -60,7 +80,7 @@ struct LinkPreviewCard: View {
     private var card: some View {
         let title = preview?.title ?? ""
         let summary = preview?.summary ?? ""
-        let hasContent = !title.isEmpty || !summary.isEmpty || preview?.imageData != nil
+        let hasContent = !title.isEmpty || !summary.isEmpty || imageData != nil
 
         if hasContent {
             HStack(alignment: .top, spacing: 10) {
@@ -83,7 +103,7 @@ struct LinkPreviewCard: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                if let data = preview?.imageData, let nsImage = NSImage(data: data) {
+                if let data = imageData, let nsImage = NSImage(data: data) {
                     Image(nsImage: nsImage)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
@@ -101,7 +121,7 @@ struct LinkPreviewCard: View {
 
     private func siteHeader(_ site: String) -> some View {
         HStack(spacing: 6) {
-            if let data = preview?.iconData, let nsImage = NSImage(data: data) {
+            if let data = iconData, let nsImage = NSImage(data: data) {
                 Image(nsImage: nsImage)
                     .resizable()
                     .scaledToFit()

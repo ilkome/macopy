@@ -8,6 +8,7 @@ struct DomainRow: View {
     let onTap: () -> Void
 
     @ObservedObject private var store = ClipboardStore.shared
+    @State private var favicon: NSImage?
 
     init(name: String, count: Int, isSelected: Bool, onTap: @escaping () -> Void) {
         self.name = name
@@ -18,10 +19,13 @@ struct DomainRow: View {
 
     private var isOther: Bool { name == "__other__" }
 
-    private var iconData: Data? {
+    // Flips when an ok preview for this hostname appears, re-running the favicon load. Only
+    // metadata is scanned; the icon blob itself is fetched from FaviconCache (DB-backed).
+    private var faviconSignal: Date? {
         store.previewsByHash.values
-            .first(where: { $0.hostname == name && $0.iconData != nil })?
-            .iconData
+            .filter { $0.hostname == name && $0.status == .ok }
+            .map(\.fetchedAt)
+            .max()
     }
 
     private var displayName: String { isOther ? String(localized: "Other") : name }
@@ -45,6 +49,10 @@ struct DomainRow: View {
         .background(Color.accentColor.opacity(isSelected ? 0.3 : 0))
         .contentShape(Rectangle())
         .onTapGesture { onTap() }
+        .task(id: faviconSignal) {
+            guard !isOther else { return }
+            favicon = await FaviconCache.load(hostname: name)
+        }
     }
 
     @ViewBuilder
@@ -54,8 +62,8 @@ struct DomainRow: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
                 .frame(width: 18, height: 18)
-        } else if let data = iconData, let nsImage = NSImage(data: data) {
-            Image(nsImage: nsImage)
+        } else if let favicon {
+            Image(nsImage: favicon)
                 .resizable()
                 .scaledToFit()
                 .frame(width: 18, height: 18)

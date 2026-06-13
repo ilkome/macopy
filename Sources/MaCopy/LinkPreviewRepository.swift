@@ -50,6 +50,18 @@ enum LinkPreviewRepository {
         }
     }
 
+    /// One favicon blob for a hostname (any matching preview that has one). Backs FaviconCache
+    /// so domain rows don't keep every icon resident in memory.
+    static func iconData(forHostname hostname: String) throws -> Data? {
+        try pool.read { db in
+            try Data.fetchOne(db, sql: """
+                SELECT iconData FROM link_previews
+                WHERE hostname = ? AND iconData IS NOT NULL
+                LIMIT 1
+                """, arguments: [hostname])
+        }
+    }
+
     static func pruneOlderThan(_ maxAge: TimeInterval) throws {
         let cutoff = Date().addingTimeInterval(-maxAge)
         _ = try pool.write { db in

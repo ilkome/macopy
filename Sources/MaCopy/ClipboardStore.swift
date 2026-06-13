@@ -57,7 +57,7 @@ final class ClipboardStore: ObservableObject {
     }
 
     func toggleMembership(folderId: UUID, itemId: UUID) {
-        try? FolderRepository.toggleMembership(folderId: folderId, itemId: itemId)
+        _ = try? FolderRepository.toggleMembership(folderId: folderId, itemId: itemId)
     }
 
     func addToFolder(folderId: UUID, itemId: UUID) {
@@ -103,7 +103,14 @@ final class ClipboardStore: ObservableObject {
         // No dataVersion bump: cards and DomainRow observe previewsByHash directly, so a
         // preview arriving must not trigger a full O(n) list recompute (each URL fetch
         // would otherwise cost two passes - pending + finalize).
-        previewsByHash[preview.urlHash] = preview
+        //
+        // Strip the image/icon blobs: a URL-heavy session would otherwise accumulate hundreds
+        // of MB of PNGs here for its whole lifetime. Only metadata (title/site/summary/status)
+        // stays in memory; the card loads its blob from the DB and DomainRow uses FaviconCache.
+        var meta = preview
+        meta.imageData = nil
+        meta.iconData = nil
+        previewsByHash[preview.urlHash] = meta
     }
 
     func removeCachedPreview(forHash hash: String) {
