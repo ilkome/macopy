@@ -37,13 +37,19 @@ enum SectionBuilder {
     private static func groupByTime(_ list: [RowModel]) -> [RowSection] {
         let now = Date()
         let cal = Calendar.current
-        let yesterday = cal.date(byAdding: .day, value: -1, to: now)
+        // Precompute the four bucket boundaries once; clipboard dates are always in the past, so
+        // each row reduces to a few Date comparisons instead of ~3 Calendar calls (~12ms/2000 rows
+        // on the panel-open path). Ordered checks preserve the original yesterday-before-week split.
+        let hourAgo = now.addingTimeInterval(-3600)
+        let startOfToday = cal.startOfDay(for: now)
+        let startOfYesterday = cal.date(byAdding: .day, value: -1, to: startOfToday) ?? startOfToday
+        let startOfWeek = cal.dateInterval(of: .weekOfYear, for: now)?.start ?? startOfToday
 
         func bucket(_ date: Date) -> Int {
-            if now.timeIntervalSince(date) <= 3600 { return 0 }
-            if cal.isDate(date, inSameDayAs: now) { return 1 }
-            if let y = yesterday, cal.isDate(date, inSameDayAs: y) { return 2 }
-            if cal.isDate(date, equalTo: now, toGranularity: .weekOfYear) { return 3 }
+            if date >= hourAgo { return 0 }
+            if date >= startOfToday { return 1 }
+            if date >= startOfYesterday { return 2 }
+            if date >= startOfWeek { return 3 }
             return 4
         }
 
@@ -102,7 +108,7 @@ enum SectionBuilder {
 
 enum URLDisplay {
     static func extractDomain(_ row: RowModel) -> String? {
-        URLNormalizer.normalizedHost(row.item.text ?? row.item.preview)
+        row.normalizedHost
     }
 
     static func pathWithoutHost(_ row: RowModel) -> String {

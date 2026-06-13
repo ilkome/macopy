@@ -3,7 +3,15 @@ import SwiftUI
 
 @Observable
 final class RowModel: Identifiable {
-    var item: ClipboardItemRecord
+    var item: ClipboardItemRecord {
+        didSet {
+            // Reused rows reassign item; the URL-derived caches must not outlive the old item.
+            if (item.text ?? item.preview) != (oldValue.text ?? oldValue.preview) {
+                _parsedURL = nil
+                _normalizedHost = nil
+            }
+        }
+    }
     var match: SearchMatch? {
         didSet {
             if match != oldValue { _snippet = nil }
@@ -13,12 +21,21 @@ final class RowModel: Identifiable {
 
     var id: UUID { item.id }
 
-    private var _parsedURL: URL??
+    @ObservationIgnored private var _parsedURL: URL??
     var parsedURL: URL? {
         if let cached = _parsedURL { return cached }
         let url = URLNormalizer.parse(item.text ?? item.preview)
         _parsedURL = url
         return url
+    }
+
+    // Memoized so groupByDomain (URL tab) doesn't re-parse every row's host on each rebuild.
+    @ObservationIgnored private var _normalizedHost: String??
+    var normalizedHost: String? {
+        if let cached = _normalizedHost { return cached }
+        let host = URLNormalizer.normalizedHost(item.text ?? item.preview)
+        _normalizedHost = host
+        return host
     }
 
     // Highlighted snippet is built on first render and cached; scoring keeps only
