@@ -7,14 +7,13 @@ struct ItemRow: View {
     var showBadge: Bool = true
 
     private var item: ClipboardItemRecord { model.item }
-    private var match: SearchMatch? { model.match }
     private var selected: Bool { model.isSelected }
 
     private var renderedText: AttributedString {
         if let override = displayOverride {
             return AttributedString(override.replacingOccurrences(of: "\n", with: " "))
         }
-        if let snippet = match?.snippet {
+        if let snippet = model.snippet {
             return snippet
         }
         let raw = item.preview.replacingOccurrences(of: "\n", with: " ")

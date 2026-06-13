@@ -198,8 +198,15 @@ struct ContentView: View {
                 kickRecompute(forceFirst: false, debounce: false)
             }
             .onReceive(minuteTick) { _ in
+                // Time buckets only shift while visible; reopening rebuilds from fresh
+                // store.items anyway. And republish only when bucket membership actually
+                // moved, else every minute re-renders the whole list for nothing.
+                guard uiState.isPanelVisible else { return }
                 let parsed = SearchEngine.parseQuery(query)
-                sections = SectionBuilder.build(rows, query: parsed.text, tab: tab, urlFirst: parsed.urlFirst)
+                let rebuilt = SectionBuilder.build(rows, query: parsed.text, tab: tab, urlFirst: parsed.urlFirst)
+                let membershipChanged = rebuilt.count != sections.count
+                    || zip(rebuilt, sections).contains { $0.id != $1.id || $0.rows.count != $1.rows.count }
+                if membershipChanged { sections = rebuilt }
             }
         }
     }
@@ -302,7 +309,7 @@ struct ContentView: View {
         built.reserveCapacity(scored.count)
         for r in scored {
             guard let item = currentById[r.id] else { continue }
-            let match = SearchMatch(score: r.score, snippet: r.snippet)
+            let match = SearchMatch(score: r.score, field: r.field, ranges: r.ranges)
             if let existing = previousById[item.id] {
                 if existing.match != match { existing.match = match }
                 if !rowItemUnchanged(existing.item, item) { existing.item = item }
@@ -330,8 +337,14 @@ struct ContentView: View {
             tab: tab,
             rows: built.map { ($0.id, $0.item.updatedAt) }
         )
-        if !forceFirst, lastAppliedStructuralHash == newHash {
+        if lastAppliedStructuralHash == newHash {
             rows = built
+            // Structure is identical (reopen with no new clips, or a redundant reset
+            // trigger): skip the O(n) section/index rebuild. forceFirst still snaps the
+            // selection to top - that's the only thing a reopen needs to change here.
+            if forceFirst {
+                applySelection(visibleListCache.first)
+            }
             return
         }
         lastAppliedStructuralHash = newHash

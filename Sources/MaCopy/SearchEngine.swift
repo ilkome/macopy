@@ -18,8 +18,15 @@ enum SearchEngine {
         let id: UUID
         let kind: ClipKind
         let score: Double
-        let snippet: AttributedString
+        // Snippet stays as field text + match ranges; the AttributedString is built
+        // lazily per visible row (see RowModel.snippet), not eagerly for every result.
+        let field: String
+        let ranges: [CountableClosedRange<Int>]
     }
+
+    // Top-N results by score are kept; nobody scrolls past a few hundred matches,
+    // and the tail only burns reconcile/section-build work.
+    static let resultCap = 300
 
     static func parseQuery(_ raw: String) -> ParsedQuery {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -110,9 +117,8 @@ enum SearchEngine {
             if lhs.0.updatedAt != rhs.0.updatedAt { return lhs.0.updatedAt > rhs.0.updatedAt }
             return lhs.0.id.uuidString < rhs.0.id.uuidString
         }
-        return scored.map { input, score, field, ranges in
-            let snippet = SearchSnippet.build(text: field, ranges: ranges, radius: 40)
-            return ScoredResult(id: input.id, kind: input.kind, score: score, snippet: snippet)
+        return scored.prefix(resultCap).map { input, score, field, ranges in
+            ScoredResult(id: input.id, kind: input.kind, score: score, field: field, ranges: ranges)
         }
     }
 
