@@ -54,13 +54,10 @@ struct ItemRow: View {
     private var leadingBadge: some View {
         switch item.kind {
         case .image:
-            if let path = item.imagePath,
-               let image = ImageCache.clipboardThumbnail(filename: path, maxPixelSize: 88) {
-                Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 26, height: 18)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
+            if let path = item.imagePath {
+                // .id(path) gives each image fresh @State so a reused row never shows the
+                // previous item's thumbnail for a frame while the new one decodes off-main.
+                ThumbnailBadge(filename: path).id(path)
             } else {
                 badgeIcon(systemName: "photo")
             }
@@ -106,5 +103,42 @@ struct ItemRow: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
+    }
+}
+
+/// Row image thumbnail. Renders a placeholder immediately and decodes the thumbnail off the
+/// main thread (cache hit returns synchronously, so cached rows never flash the placeholder).
+private struct ThumbnailBadge: View {
+    let filename: String
+    @State private var image: NSImage?
+
+    var body: some View {
+        content.task { await load() }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if let image {
+            Image(nsImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: 26, height: 18)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+        } else {
+            Image(systemName: "photo")
+                .font(.system(size: 14))
+                .foregroundStyle(.secondary)
+                .frame(width: 26, height: 26)
+        }
+    }
+
+    private func load() async {
+        if let cached = ImageCache.cachedThumbnail(filename: filename) {
+            image = cached
+            return
+        }
+        let loaded = await ImageCache.loadThumbnail(filename: filename)
+        guard !Task.isCancelled else { return }
+        image = loaded
     }
 }

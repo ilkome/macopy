@@ -21,16 +21,39 @@ enum Keychain {
     static let account = "masterKey-v1"
     static let keyByteCount = 32
 
+    // The master key never changes within a session, but it is read on every encrypted
+    // image/thumbnail access (row scrolling). Memoize it so we pay the Keychain IPC at most
+    // once instead of on every decrypt. Lock-guarded: reads come from the main actor and
+    // from detached decode tasks.
+    private static let cacheLock = NSLock()
+    nonisolated(unsafe) private static var cachedKey: SymmetricKey?
+
     static func getOrCreateMasterKey() throws -> SymmetricKey {
+        cacheLock.lock()
+        let memoized = cachedKey
+        cacheLock.unlock()
+        if let memoized { return memoized }
+
+        // Fetch outside the lock to avoid holding it across Keychain IPC. A benign race where
+        // two threads both fetch resolves to the same key.
+        let key: SymmetricKey
         if let existing = try fetchKey() {
-            return SymmetricKey(data: existing)
+            key = SymmetricKey(data: existing)
+        } else {
+            let fresh = try generateRandomBytes(count: keyByteCount)
+            try storeKey(fresh)
+            key = SymmetricKey(data: fresh)
         }
-        let fresh = try generateRandomBytes(count: keyByteCount)
-        try storeKey(fresh)
-        return SymmetricKey(data: fresh)
+        cacheLock.lock()
+        cachedKey = key
+        cacheLock.unlock()
+        return key
     }
 
     static func deleteMasterKey() throws {
+        cacheLock.lock()
+        cachedKey = nil
+        cacheLock.unlock()
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

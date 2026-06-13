@@ -83,7 +83,7 @@ final class ClipboardMonitor {
 
         if let text = pb.string(forType: .string), !text.isEmpty {
             if AppSettings.shared.filterSensitiveContent,
-               let kind = SecretDetector.detect(in: text) {
+               let kind = SecretDetector.detect(in: String(text.prefix(Self.detectionScanCap))) {
                 Self.privacyLogger.info("filtered: \(kind.rawValue, privacy: .public)")
                 return
             }
@@ -114,9 +114,16 @@ final class ClipboardMonitor {
         return nil
     }
 
+    // Type/secret detection scan multiple times over the payload; on a multi-MB clip that is
+    // hundreds of MB of main-thread scanning. URLs are < 2048 chars and code/secret signals sit
+    // at the start, so bound detection to a prefix. Hashing stays over the full payload so dedup
+    // never collides two long clips that share a prefix.
+    private static let detectionScanCap = 256 * 1024
+
     private func handleText(_ text: String, sourceFile: String?, frontApp: NSRunningApplication?) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        let kind = ContentTypeDetector.detect(text)
+        let scanText = String(text.prefix(Self.detectionScanCap))
+        let kind = ContentTypeDetector.detect(scanText)
         let hashInput = kind == .url ? URLNormalizer.normalize(text) : text
         let hash = Self.sha256(Data(hashInput.utf8))
 
@@ -164,6 +171,14 @@ final class ClipboardMonitor {
 
         let filename = "\(UUID().uuidString).\(ext)"
         do { try ImageStore.write(data, filename: filename) } catch { return }
+
+        // Persist a small encrypted thumbnail off-main so row rendering reads ~tens of KB on a
+        // cache miss instead of decrypting + decoding the full-resolution original.
+        Task.detached(priority: .utility) {
+            if let thumbData = ImageCache.encodedThumbnail(from: data, maxPixelSize: ImageCache.thumbStorePixelSize) {
+                try? ImageStore.write(thumbData, filename: ImageCache.thumbFilename(for: filename))
+            }
+        }
 
         let (width, height) = Self.dimensions(from: data)
         let iconPath = frontApp.flatMap { IconCache.savedIcon(for: $0) }

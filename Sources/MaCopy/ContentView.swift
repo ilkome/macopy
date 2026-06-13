@@ -1048,6 +1048,7 @@ struct ContentView: View {
         if let path = item.imagePath {
             ImageCache.invalidateClipboardImage(filename: path)
             ImageStore.delete(filename: path)
+            ImageStore.delete(filename: ImageCache.thumbFilename(for: path))
         }
         if item.kind == .url {
             let raw = item.text ?? item.preview
