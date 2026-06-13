@@ -12,6 +12,8 @@ struct ContentView: View {
     @AppStorage("listWidth") private var listWidth: Double = Double(Layout.defaultListWidth)
     @AppStorage("urlDomainsWidth") private var urlDomainsWidth: Double = Double(Layout.defaultDomainsWidth)
     @AppStorage("urlListWidth") private var urlListWidth: Double = Double(Layout.defaultUrlListWidth)
+    @AppStorage("folderListWidth") private var folderListWidth: Double = Double(Layout.defaultFolderListWidth)
+    @AppStorage("folderItemsWidth") private var folderItemsWidth: Double = Double(Layout.defaultFolderItemsWidth)
     @FocusState private var searchFocused: Bool
 
     @State private var rows: [RowModel] = []
@@ -32,6 +34,15 @@ struct ContentView: View {
     @ObservedObject private var uiState = UIState.shared
     @State private var keyMonitor: PanelKeyMonitor?
     @State private var pendingSelectionAfterClone: UUID?
+    // Direct handle on the highlighted row so its flag is cleared even after the row
+    // leaves rowsById (e.g. a tab switch) - otherwise a stale isSelected ghosts on reopen.
+    @State private var selectedRowModel: RowModel?
+    // Folders tab: the active folder whose items fill the middle pane. Explicit state
+    // (not derived from the selected item) because membership is many-to-many.
+    @State private var selectedFolderID: UUID?
+    @State private var renamingFolderID: UUID?
+    @State private var folderPickerTarget: UUID?
+    @State private var showFolderPicker = false
 
     private var selectedItem: ClipboardItemRecord? {
         guard case let .item(id) = selection else { return nil }
@@ -44,6 +55,8 @@ struct ContentView: View {
             return rowsById[id]?.item
         case .domain(let name):
             return sectionsByID[domainSectionPrefix + name]?.rows.first?.item
+        case .folder:
+            return currentFolderRows.first?.item
         case .none:
             return nil
         }
@@ -51,6 +64,23 @@ struct ContentView: View {
 
     private var urlMode: Bool {
         tab == .urls && query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var folderMode: Bool {
+        tab == .folders && query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Loaded rows belonging to the active folder, newest first. Members that aged out
+    /// of the 2000-item window simply aren't in rowsById (mirrors favorites behavior).
+    private var currentFolderRows: [RowModel] {
+        guard let fid = selectedFolderID, let ids = store.folderMembership[fid] else { return [] }
+        return ids.compactMap { rowsById[$0] }.sorted { $0.item.updatedAt > $1.item.updatedAt }
+    }
+
+    private func folderMemberCount(_ id: UUID) -> Int {
+        (store.folderMembership[id] ?? []).reduce(into: 0) { acc, itemId in
+            if rowsById[itemId] != nil { acc += 1 }
+        }
     }
 
     private var togglePanelShortcutLabel: String? {
@@ -61,6 +91,7 @@ struct ContentView: View {
         switch selection {
         case .domain(let name): return name
         case .item(let id): return domainByItemID[id]
+        case .folder: return nil
         case .none: return nil
         }
     }
@@ -125,6 +156,7 @@ struct ContentView: View {
             },
             isURLSelected: { selectedItem?.kind == .url },
             toggleFavorite: { toggleFavorite() },
+            openFolderPicker: { if case let .item(id) = selection { openFolderPicker(for: id) } },
             focusComment: { uiState.commentFocusToken &+= 1 },
             focusEditor: { uiState.editorFocusToken &+= 1 },
             deleteSelected: { deleteSelected() },
@@ -142,6 +174,32 @@ struct ContentView: View {
         keyMonitor = nil
     }
 
+    @ViewBuilder
+    private func contentArea(proxy: ScrollViewProxy) -> some View {
+        if folderMode {
+            folderThreePane(proxy: proxy)
+        } else if urlMode {
+            urlThreePane(proxy: proxy)
+        } else {
+            HStack(spacing: 0) {
+                listView(proxy: proxy)
+                    .frame(width: CGFloat(listWidth))
+                ResizableDivider(
+                    width: $listWidth,
+                    minWidth: Double(Layout.minListWidth),
+                    maxWidth: Double(Layout.maxListWidth)
+                )
+                .frame(width: Layout.splitDividerWidth)
+                PreviewPane(item: previewItem)
+                    .frame(
+                        width: Layout.panelWidth
+                            - CGFloat(listWidth)
+                            - Layout.splitDividerWidth
+                    )
+            }
+        }
+    }
+
     private var mainBody: some View {
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
@@ -151,44 +209,32 @@ struct ContentView: View {
                 tabBar
                     .frame(height: Layout.tabsHeight)
                 Divider().opacity(0.3)
-                if urlMode {
-                    urlThreePane(proxy: proxy)
-                        .frame(height: Layout.listHeight)
-                } else {
-                    HStack(spacing: 0) {
-                        listView(proxy: proxy)
-                            .frame(width: CGFloat(listWidth))
-                        ResizableDivider(
-                            width: $listWidth,
-                            minWidth: Double(Layout.minListWidth),
-                            maxWidth: Double(Layout.maxListWidth)
-                        )
-                        .frame(width: Layout.splitDividerWidth)
-                        PreviewPane(item: previewItem)
-                            .frame(
-                                width: Layout.panelWidth
-                                    - CGFloat(listWidth)
-                                    - Layout.splitDividerWidth
-                            )
-                    }
+                contentArea(proxy: proxy)
                     .frame(height: Layout.listHeight)
-                }
             }
+            .overlay { folderPickerOverlay }
             .onReceive(NotificationCenter.default.publisher(for: .clipboardPanelReset)) { _ in
                 resetToTop(proxy: proxy)
             }
-            .onChange(of: tab) { _, _ in
+            .onChange(of: tab) { _, newTab in
                 kickRecompute(forceFirst: true, debounce: false) {
-                    if let firstSection = sections.first {
-                        proxy.scrollTo("section-\(firstSection.id)", anchor: .top)
+                    scrollToFirstSection(proxy: proxy)
+                }
+                if newTab == .folders {
+                    // SectionBuilder yields no sections for folders, so the recompute
+                    // clears selection; point it at the active (or first) folder.
+                    if let target = selectedFolderID ?? store.folders.first?.id {
+                        applySelection(.folder(target))
                     }
                 }
             }
-            .onChange(of: query) { _, _ in
-                kickRecompute(forceFirst: true, debounce: true) {
-                    if !sections.isEmpty, let firstSection = sections.first {
-                        proxy.scrollTo("section-\(firstSection.id)", anchor: .top)
-                    }
+            .onChange(of: query) { _, newValue in
+                // Debounce real typing only; clearing to empty applies synchronously
+                // so full history shows at once (same invariant as a tab switch) and
+                // leaves no pending task that could later yank the selection to top.
+                let isEmpty = newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                kickRecompute(forceFirst: true, debounce: !isEmpty) {
+                    scrollToFirstSection(proxy: proxy)
                 }
             }
             .onChange(of: allItemsSignature) { _, _ in
@@ -223,6 +269,14 @@ struct ContentView: View {
         let minUrlList = Double(Layout.minUrlListWidth)
         let maxUrlList = Double(Layout.urlMaxListWidth(domains: CGFloat(urlDomainsWidth)))
         urlListWidth = min(maxUrlList, max(minUrlList, urlListWidth))
+
+        let minFolderList = Double(Layout.minFolderListWidth)
+        let maxFolderList = Double(Layout.folderMaxListWidth)
+        folderListWidth = min(maxFolderList, max(minFolderList, folderListWidth))
+
+        let minFolderItems = Double(Layout.minFolderItemsWidth)
+        let maxFolderItems = Double(Layout.folderMaxItemsWidth(list: CGFloat(folderListWidth)))
+        folderItemsWidth = min(maxFolderItems, max(minFolderItems, folderItemsWidth))
     }
 
     private func recomputeAsync(forceFirst: Bool = false) async {
@@ -415,28 +469,56 @@ struct ContentView: View {
     }
 
     private func applySelection(_ new: Selectable?) {
-        guard selection != new else { return }
-        if case let .item(oldId) = selection,
-           let oldModel = rowsById[oldId],
-           oldModel.isSelected {
-            oldModel.isSelected = false
+        // Selecting a folder updates the active folder; selecting an item leaves it intact.
+        if case let .folder(id) = new { selectedFolderID = id }
+        let newModel: RowModel? = {
+            if case let .item(id) = new { return rowsById[id] }
+            return nil
+        }()
+        if selectedRowModel !== newModel {
+            let outgoing = selectedRowModel
+            newModel?.isSelected = true
+            selectedRowModel = newModel
+            if let outgoing, outgoing !== newModel {
+                if rowsById[outgoing.item.id] === outgoing {
+                    // Still present in this view - safe to unhighlight immediately.
+                    outgoing.isSelected = false
+                } else {
+                    // Outgoing row is leaving this tab. Clearing its observable flag now
+                    // re-renders its outgoing ItemRow straight into the incoming tab as a
+                    // ghost first row. Defer until the swap settles (its row is gone by
+                    // then), and skip if it got reselected in the meantime.
+                    DispatchQueue.main.async {
+                        if self.selectedRowModel !== outgoing { outgoing.isSelected = false }
+                    }
+                }
+            }
+        } else if let m = newModel, !m.isSelected {
+            m.isSelected = true
         }
-        selection = new
-        if case let .item(newId) = new,
-           let newModel = rowsById[newId],
-           !newModel.isSelected {
-            newModel.isSelected = true
-        }
+        if selection != new { selection = new }
     }
 
     private func resetToTop(proxy: ScrollViewProxy) {
         query = ""
         tab = .all
         searchFocused = true
+        showFolderPicker = false
+        folderPickerTarget = nil
+        renamingFolderID = nil
         kickRecompute(forceFirst: true, debounce: false) {
-            if let first = sections.first {
-                proxy.scrollTo("section-\(first.id)", anchor: .top)
-            }
+            scrollToFirstSection(proxy: proxy)
+        }
+    }
+
+    /// Scroll the list back to the top. Deferred a runloop so the freshly built
+    /// sections are laid out first - scrolling synchronously targets a section id the
+    /// new tab hasn't realized yet, so the list stays where the previous tab left it
+    /// and the selected first row ends up above the viewport.
+    private func scrollToFirstSection(proxy: ScrollViewProxy) {
+        DispatchQueue.main.async {
+            guard let first = sections.first else { return }
+            proxy.scrollTo("section-\(first.id)", anchor: .top)
         }
     }
 
@@ -492,12 +574,14 @@ struct ContentView: View {
                 .onKeyPress(.leftArrow) {
                     guard query.isEmpty else { return .ignored }
                     if urlMode, backToDomains() { return .handled }
+                    if folderMode, backToFolder() { return .handled }
                     cycleTab(-1)
                     return .handled
                 }
                 .onKeyPress(.rightArrow) {
                     guard query.isEmpty else { return .ignored }
                     if urlMode, enterDomainItems() { return .handled }
+                    if folderMode, enterFolderItems() { return .handled }
                     cycleTab(1)
                     return .handled
                 }
@@ -600,7 +684,7 @@ struct ContentView: View {
     private func rowContextMenu(_ item: ClipboardItemRecord) -> some View {
         let groups: [[PanelCommand]] = [
             [.paste, .copyOnly, .openURL],
-            [.favorite, .clone],
+            [.favorite, .addToFolder, .clone],
             [.edit, .comment, .quickLook],
             [.delete]
         ]
@@ -760,6 +844,33 @@ struct ContentView: View {
     }
 
     private func move(_ delta: Int, proxy: ScrollViewProxy) {
+        if folderMode {
+            if case let .item(currentId) = selection {
+                let list = currentFolderRows
+                guard !list.isEmpty else { return }
+                let idx = list.firstIndex { $0.id == currentId } ?? 0
+                let new = max(0, min(list.count - 1, idx + delta))
+                let next = Selectable.item(list[new].id)
+                guard next != selection else { return }
+                applySelection(next)
+                scrollTo(next, proxy: proxy)
+                return
+            }
+            let folders = store.folders
+            guard !folders.isEmpty else { return }
+            let curIdx: Int
+            if case let .folder(fid) = selection {
+                curIdx = folders.firstIndex { $0.id == fid } ?? 0
+            } else {
+                curIdx = 0
+            }
+            let new = max(0, min(folders.count - 1, curIdx + delta))
+            let next = Selectable.folder(folders[new].id)
+            guard next != selection else { return }
+            applySelection(next)
+            scrollTo(next, proxy: proxy)
+            return
+        }
         if urlMode, case let .item(currentId) = selection {
             let list = currentDomainRows
             guard !list.isEmpty else { return }
@@ -791,7 +902,21 @@ struct ContentView: View {
             }
         case .domain(let name):
             proxy.scrollTo("section-domain-\(name)", anchor: .top)
+        case .folder(let id):
+            proxy.scrollTo("section-\(folderSectionPrefix)\(id.uuidString)", anchor: .top)
         }
+    }
+
+    private func enterFolderItems() -> Bool {
+        guard case .folder = selection, let first = currentFolderRows.first else { return false }
+        applySelection(.item(first.id))
+        return true
+    }
+
+    private func backToFolder() -> Bool {
+        guard case .item = selection, let fid = selectedFolderID else { return false }
+        applySelection(.folder(fid))
+        return true
     }
 
     private func enterDomainItems() -> Bool {
@@ -818,6 +943,7 @@ struct ContentView: View {
         case .copyOnly: copyOnly(item)
         case .openURL: openURL(item)
         case .favorite: toggleFavorite(item)
+        case .addToFolder: openFolderPicker(for: item.id)
         case .clone: clone(item)
         case .edit: focusEditor(item)
         case .comment: focusComment(item)
@@ -929,6 +1055,143 @@ struct ContentView: View {
             try? LinkPreviewRepository.deletePreview(urlHash: hash)
             store.removeCachedPreview(forHash: hash)
         }
+        try? FolderRepository.deleteMembershipsForItem(itemId: item.id)
         try? ClipboardItemRepository.deleteItem(id: item.id)
+    }
+
+    private func openFolderPicker(for itemID: UUID) {
+        folderPickerTarget = itemID
+        showFolderPicker = true
+        searchFocused = false
+    }
+
+    private func deleteFolder(_ id: UUID) {
+        let remaining = store.folders.filter { $0.id != id }
+        store.deleteFolder(id: id)
+        if renamingFolderID == id { renamingFolderID = nil }
+        if selectedFolderID == id {
+            applySelection(remaining.first.map { .folder($0.id) })
+            if remaining.isEmpty { selectedFolderID = nil }
+        }
+    }
+
+    @ViewBuilder
+    private var folderPickerOverlay: some View {
+        if showFolderPicker, let target = folderPickerTarget {
+            FolderPicker(itemID: target) {
+                showFolderPicker = false
+                folderPickerTarget = nil
+                DispatchQueue.main.async { searchFocused = true }
+            }
+        }
+    }
+
+    private func folderThreePane(proxy: ScrollViewProxy) -> some View {
+        let listW = CGFloat(folderListWidth)
+        let itemsW = CGFloat(folderItemsWidth)
+        return HStack(spacing: 0) {
+            foldersPane(proxy: proxy)
+                .frame(width: listW)
+            ResizableDivider(
+                width: $folderListWidth,
+                minWidth: Double(Layout.minFolderListWidth),
+                maxWidth: Double(Layout.folderMaxListWidth)
+            )
+            .frame(width: Layout.splitDividerWidth)
+            folderItemsPane(proxy: proxy)
+                .frame(width: itemsW)
+            ResizableDivider(
+                width: $folderItemsWidth,
+                minWidth: Double(Layout.minFolderItemsWidth),
+                maxWidth: Double(Layout.folderMaxItemsWidth(list: listW))
+            )
+            .frame(width: Layout.splitDividerWidth)
+            PreviewPane(item: previewItem)
+                .frame(width: Layout.folderPreviewWidth(list: listW, items: itemsW))
+        }
+    }
+
+    private func foldersPane(proxy: ScrollViewProxy) -> some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(store.folders, id: \.id) { folder in
+                    folderRowView(folder)
+                        .id("section-\(folderSectionPrefix)\(folder.id.uuidString)")
+                }
+                createFolderInlineRow
+            }
+        }
+        .scrollIndicators(.never)
+    }
+
+    private func folderRowView(_ folder: FolderRecord) -> some View {
+        FolderRow(
+            folder: folder,
+            count: folderMemberCount(folder.id),
+            isSelected: selectedFolderID == folder.id,
+            isRenaming: renamingFolderID == folder.id,
+            onTap: {
+                applySelection(.folder(folder.id))
+                uiState.searchFocusToken &+= 1
+            },
+            onCommitRename: { newName in
+                let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty, trimmed != folder.name {
+                    store.renameFolder(id: folder.id, name: trimmed)
+                }
+                renamingFolderID = nil
+            }
+        )
+        .contextMenu {
+            Button { renamingFolderID = folder.id } label: {
+                Label("Rename", systemImage: "pencil")
+            }
+            Button(role: .destructive) { deleteFolder(folder.id) } label: {
+                Label("Delete folder", systemImage: "trash")
+            }
+        }
+    }
+
+    private var createFolderInlineRow: some View {
+        Button {
+            if let folder = store.createFolder(name: String(localized: "New folder")) {
+                applySelection(.folder(folder.id))
+                renamingFolderID = folder.id
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "plus")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18, height: 18)
+                Text("New folder")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: Layout.rowHeight)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func folderItemsPane(proxy: ScrollViewProxy) -> some View {
+        let rows = currentFolderRows
+        return ScrollView {
+            LazyVStack(spacing: 0) {
+                if selectedFolderID == nil {
+                    placeholderPane("Select a folder")
+                } else if rows.isEmpty {
+                    placeholderPane("Folder is empty")
+                } else {
+                    ForEach(rows, id: \.id) { row in
+                        itemRowView(row)
+                    }
+                }
+            }
+        }
+        .scrollIndicators(.never)
     }
 }

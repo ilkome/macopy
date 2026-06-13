@@ -6,6 +6,7 @@ final class PanelKeyMonitor {
         var isItemSelected: () -> Bool
         var isURLSelected: () -> Bool
         var toggleFavorite: () -> Void
+        var openFolderPicker: () -> Void
         var focusComment: () -> Void
         var focusEditor: () -> Void
         var deleteSelected: () -> Void
@@ -52,6 +53,10 @@ final class PanelKeyMonitor {
         case 2:
             guard callbacks.isItemSelected() else { return event }
             callbacks.cloneSelected()
+            return nil
+        case 37:
+            guard callbacks.isItemSelected() else { return event }
+            callbacks.openFolderPicker()
             return nil
         case 13:
             guard callbacks.isItemSelected() else { return event }

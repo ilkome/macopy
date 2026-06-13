@@ -53,11 +53,13 @@ struct SearchMatch: Equatable {
 enum Selectable: Hashable {
     case item(UUID)
     case domain(String)
+    case folder(UUID)
 
     var scrollID: String {
         switch self {
         case .item(let id): return id.uuidString
         case .domain(let name): return domainSectionPrefix + name
+        case .folder(let id): return folderSectionPrefix + id.uuidString
         }
     }
 }

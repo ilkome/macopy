@@ -17,6 +17,12 @@ enum Layout {
     static let minUrlListWidth: CGFloat = 180
     static let minUrlPreviewWidth: CGFloat = 200
 
+    static let defaultFolderListWidth: CGFloat = 180
+    static let defaultFolderItemsWidth: CGFloat = 300
+    static let minFolderListWidth: CGFloat = 120
+    static let minFolderItemsWidth: CGFloat = 180
+    static let minFolderPreviewWidth: CGFloat = 200
+
     static var panelWidth: CGFloat {
         defaultListWidth + splitDividerWidth + defaultPreviewWidth
     }
@@ -40,7 +46,21 @@ enum Layout {
             panelWidth - splitDividerWidth * 2 - domains - list
         )
     }
+
+    static var folderMaxListWidth: CGFloat {
+        panelWidth - splitDividerWidth * 2 - minFolderItemsWidth - minFolderPreviewWidth
+    }
+    static func folderMaxItemsWidth(list: CGFloat) -> CGFloat {
+        panelWidth - splitDividerWidth * 2 - list - minFolderPreviewWidth
+    }
+    static func folderPreviewWidth(list: CGFloat, items: CGFloat) -> CGFloat {
+        max(
+            minFolderPreviewWidth,
+            panelWidth - splitDividerWidth * 2 - list - items
+        )
+    }
 }
 
 let otherDomainKey = "__other__"
 let domainSectionPrefix = "domain-"
+let folderSectionPrefix = "folder-"

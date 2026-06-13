@@ -13,6 +13,11 @@ enum SectionBuilder {
         if tab == .urls {
             return groupByDomain(list)
         }
+        // Folders tab (empty query) renders its own three-pane from store.folders + membership,
+        // so don't waste a groupByTime pass over all 2000 rows here.
+        if tab == .folders {
+            return []
+        }
         return groupByTime(list)
     }
 

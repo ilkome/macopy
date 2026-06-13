@@ -8,6 +8,7 @@ enum PanelCommand: CaseIterable, Identifiable {
     case copyOnly
     case openURL
     case favorite
+    case addToFolder
     case clone
     case edit
     case comment
@@ -23,6 +24,7 @@ enum PanelCommand: CaseIterable, Identifiable {
         case .copyOnly: return "doc.on.doc"
         case .openURL: return "safari"
         case .favorite: return "star"
+        case .addToFolder: return "folder.badge.plus"
         case .clone: return "plus.square.on.square"
         case .edit: return "pencil"
         case .comment: return "text.bubble"
@@ -38,6 +40,7 @@ enum PanelCommand: CaseIterable, Identifiable {
         case .copyOnly: return ["⇧", "⏎"]
         case .openURL: return ["⌘", "⏎"]
         case .favorite: return ["⌘", "S"]
+        case .addToFolder: return ["⌘", "L"]
         case .clone: return ["⌘", "D"]
         case .edit: return ["⌘", "E"]
         case .comment: return ["⌘", "W"]
@@ -57,6 +60,7 @@ enum PanelCommand: CaseIterable, Identifiable {
         switch self {
         case .openURL: return KeyboardShortcut(.return, modifiers: .command)
         case .favorite: return KeyboardShortcut("s", modifiers: .command)
+        case .addToFolder: return KeyboardShortcut("l", modifiers: .command)
         case .clone: return KeyboardShortcut("d", modifiers: .command)
         case .edit: return KeyboardShortcut("e", modifiers: .command)
         case .comment: return KeyboardShortcut("w", modifiers: .command)
@@ -73,6 +77,7 @@ enum PanelCommand: CaseIterable, Identifiable {
         case .favorite: return item.isFavorite
             ? String(localized: "Remove from favorites")
             : String(localized: "Add to favorites")
+        case .addToFolder: return String(localized: "Add to folder…")
         case .clone: return String(localized: "Duplicate")
         case .edit: return String(localized: "Edit text")
         case .comment: return String(localized: "Comment")
@@ -86,7 +91,7 @@ enum PanelCommand: CaseIterable, Identifiable {
         case .openURL: return item.kind == .url
         case .clone, .edit: return item.kind == .text
         case .quickLook: return item.kind == .image
-        case .paste, .copyOnly, .favorite, .comment, .delete: return true
+        case .paste, .copyOnly, .favorite, .addToFolder, .comment, .delete: return true
         }
     }
 }

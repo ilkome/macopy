@@ -61,7 +61,8 @@ enum AppDatabase {
         return pool
     }
 
-    private static var migrator: DatabaseMigrator {
+    // Internal (not private) so tests can migrate an in-memory database to the same schema.
+    static var migrator: DatabaseMigrator {
         var migrator = DatabaseMigrator()
 
         migrator.registerMigration("v1") { db in
@@ -112,6 +113,28 @@ enum AppDatabase {
                 index: "idx_link_previews_hostname",
                 on: "link_previews",
                 columns: ["hostname"]
+            )
+        }
+
+        migrator.registerMigration("v2") { db in
+            try db.create(table: "folders") { t in
+                t.column("id", .text).primaryKey()
+                t.column("name", .text).notNull()
+                t.column("createdAt", .datetime).notNull()
+                t.column("sortIndex", .integer).notNull().defaults(to: 0)
+            }
+            try db.create(table: "folder_items") { t in
+                t.column("folderId", .text).notNull()
+                    .references("folders", onDelete: .cascade)
+                t.column("itemId", .text).notNull()
+                    .references("clipboard_items", onDelete: .cascade)
+                t.column("addedAt", .datetime).notNull()
+                t.primaryKey(["folderId", "itemId"])
+            }
+            try db.create(
+                index: "idx_folder_items_itemId",
+                on: "folder_items",
+                columns: ["itemId"]
             )
         }
 
