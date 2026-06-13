@@ -5,6 +5,7 @@ import Vision
 
 enum OCRService {
     private static let limiter = OCRConcurrencyLimiter(maxConcurrent: 2)
+    private static let resultBuffer = OCRResultBuffer()
     private static let privacyLogger = Logger(subsystem: "dev.ilkome.MaCopy", category: "privacy.filter")
     private static let backfillFlag = "ocrSecretBackfill_v1_done"
 
@@ -77,6 +78,6 @@ enum OCRService {
             privacyLogger.info("ocr-redacted: \(kind.rawValue, privacy: .public)")
         }
 
-        try? ClipboardItemRepository.updateOCR(id: itemId, text: result.text)
+        await resultBuffer.add(id: itemId, text: result.text)
     }
 }
