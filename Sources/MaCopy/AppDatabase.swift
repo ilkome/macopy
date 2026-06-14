@@ -43,7 +43,10 @@ enum AppDatabase {
         var config = Configuration()
         config.prepareDatabase { db in
             try db.execute(sql: "PRAGMA key = \"x'\(keyHex)'\"")
-            try db.execute(sql: "PRAGMA cipher_memory_security = ON")
+            // cipher_memory_security left at the SQLCipher 4 default (OFF). Measured at ~4×
+            // (+7ms) on the 2000-row projection refetch that fires on every write, while its
+            // protection (zero-on-free, no-swap of SQLite buffers) is already negated by the
+            // app holding decrypted rows in the plain, swappable Swift heap for the session.
         }
 
         let pool: DatabasePool
