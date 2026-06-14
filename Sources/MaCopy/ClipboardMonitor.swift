@@ -122,42 +122,46 @@ final class ClipboardMonitor {
     // hundreds of MB of main-thread scanning. URLs are < 2048 chars and code/secret signals sit
     // at the start, so bound detection to a prefix. Hashing stays over the full payload so dedup
     // never collides two long clips that share a prefix.
-    private static let detectionScanCap = 256 * 1024
+    nonisolated private static let detectionScanCap = 256 * 1024
 
     private func handleText(_ text: String, sourceFile: String?, frontApp: NSRunningApplication?) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        let scanText = String(text.prefix(Self.detectionScanCap))
-        let kind = ContentTypeDetector.detect(scanText)
-        let hashInput = kind == .url ? URLNormalizer.normalize(text) : text
-        let hash = Self.sha256(Data(hashInput.utf8))
-
-        if let existing = try? ClipboardItemRepository.findItem(byHash: hash) {
-            try? ClipboardItemRepository.updateUpdatedAt(id: existing.id)
-            if kind == .url {
-                LinkPreviewService.shared.fetchIfNeeded(for: text)
-            }
-            return
-        }
-
-        let preview = String(text.prefix(200))
+        // IconCache is @MainActor, so resolve app metadata here; the full-payload SHA256, dedup
+        // and insert run off the main thread (a multi-MB clip otherwise freezes the panel/paste).
         let iconPath = frontApp.flatMap { IconCache.savedIcon(for: $0) }
+        let bundleId = frontApp?.bundleIdentifier
+        let appName = frontApp?.localizedName
 
-        let item = ClipboardItemRecord(
-            contentHash: hash,
-            kind: kind,
-            text: text,
-            preview: preview,
-            sourceAppBundleId: frontApp?.bundleIdentifier,
-            sourceAppName: frontApp?.localizedName,
-            sourceAppIconPath: iconPath,
-            sourceFilePath: sourceFile,
-            byteSize: text.utf8.count
-        )
-        try? ClipboardItemRepository.insertItem(item)
-        notePotentialPrune()
+        Task.detached(priority: .userInitiated) {
+            let scanText = String(text.prefix(Self.detectionScanCap))
+            let kind = ContentTypeDetector.detect(scanText)
+            let hashInput = kind == .url ? URLNormalizer.normalize(text) : text
+            let hash = Self.sha256(Data(hashInput.utf8))
 
-        if kind == .url {
-            LinkPreviewService.shared.fetchIfNeeded(for: text)
+            if let existing = try? ClipboardItemRepository.findItem(byHash: hash) {
+                try? ClipboardItemRepository.updateUpdatedAt(id: existing.id)
+                if kind == .url {
+                    await MainActor.run { LinkPreviewService.shared.fetchIfNeeded(for: text) }
+                }
+                return
+            }
+
+            let item = ClipboardItemRecord(
+                contentHash: hash,
+                kind: kind,
+                text: text,
+                preview: String(text.prefix(200)),
+                sourceAppBundleId: bundleId,
+                sourceAppName: appName,
+                sourceAppIconPath: iconPath,
+                sourceFilePath: sourceFile,
+                byteSize: text.utf8.count
+            )
+            try? ClipboardItemRepository.insertItem(item)
+            await MainActor.run {
+                ClipboardMonitor.shared.notePotentialPrune()
+                if kind == .url { LinkPreviewService.shared.fetchIfNeeded(for: text) }
+            }
         }
     }
 
@@ -167,7 +171,7 @@ final class ClipboardMonitor {
         fileURL: URL?,
         frontApp: NSRunningApplication?
     ) {
-        let hash = Self.hashImage(data)
+        let hash = Self.hashImage(data)  // 64KB-prefix hash is cheap; dedup stays serial on main
 
         if let existing = try? ClipboardItemRepository.findItem(byHash: hash) {
             try? ClipboardItemRepository.updateUpdatedAt(id: existing.id)
@@ -175,41 +179,43 @@ final class ClipboardMonitor {
         }
 
         let filename = "\(UUID().uuidString).\(ext)"
-        do { try ImageStore.write(data, filename: filename) } catch { return }
+        let iconPath = frontApp.flatMap { IconCache.savedIcon(for: $0) }  // @MainActor
+        let bundleId = frontApp?.bundleIdentifier
+        let appName = frontApp?.localizedName
+        let sourcePath = fileURL?.path
+        let previewName = fileURL?.lastPathComponent
+        let ocrEnabled = AppSettings.shared.ocrEnabled
+        let filterSecrets = AppSettings.shared.filterSensitiveContent
 
-        // Persist a small encrypted thumbnail off-main so row rendering reads ~tens of KB on a
-        // cache miss instead of decrypting + decoding the full-resolution original.
-        Task.detached(priority: .utility) {
+        // Encrypt + write the full image (AES over multi-MB) and persist off the main thread.
+        // The row is inserted only after the file lands, so it never references a missing file.
+        Task.detached(priority: .userInitiated) {
+            do { try ImageStore.write(data, filename: filename) } catch { return }
             if let thumbData = ImageCache.encodedThumbnail(from: data, maxPixelSize: ImageCache.thumbStorePixelSize) {
                 try? ImageStore.write(thumbData, filename: ImageCache.thumbFilename(for: filename))
             }
-        }
 
-        let (width, height) = Self.dimensions(from: data)
-        let iconPath = frontApp.flatMap { IconCache.savedIcon(for: $0) }
-        let preview = fileURL?.lastPathComponent ?? "Image \(width)×\(height)"
+            let (width, height) = Self.dimensions(from: data)
+            let item = ClipboardItemRecord(
+                contentHash: hash,
+                kind: .image,
+                preview: previewName ?? "Image \(width)×\(height)",
+                imagePath: filename,
+                imageWidth: width,
+                imageHeight: height,
+                sourceAppBundleId: bundleId,
+                sourceAppName: appName,
+                sourceAppIconPath: iconPath,
+                sourceFilePath: sourcePath,
+                byteSize: data.count
+            )
+            try? ClipboardItemRepository.insertItem(item)
+            await MainActor.run { ClipboardMonitor.shared.notePotentialPrune() }
 
-        let item = ClipboardItemRecord(
-            contentHash: hash,
-            kind: .image,
-            preview: preview,
-            imagePath: filename,
-            imageWidth: width,
-            imageHeight: height,
-            sourceAppBundleId: frontApp?.bundleIdentifier,
-            sourceAppName: frontApp?.localizedName,
-            sourceAppIconPath: iconPath,
-            sourceFilePath: fileURL?.path,
-            byteSize: data.count
-        )
-        try? ClipboardItemRepository.insertItem(item)
-        notePotentialPrune()
-
-        if AppSettings.shared.ocrEnabled {
-            let id = item.id
-            let filterSecrets = AppSettings.shared.filterSensitiveContent
-            Task.detached(priority: .utility) {
-                await OCRService.process(itemId: id, imagePath: filename, filterSecrets: filterSecrets)
+            if ocrEnabled {
+                Task.detached(priority: .utility) {
+                    await OCRService.process(itemId: item.id, imagePath: filename, filterSecrets: filterSecrets)
+                }
             }
         }
     }
@@ -222,7 +228,7 @@ final class ClipboardMonitor {
         Task.detached(priority: .utility) { RetentionService.prune() }
     }
 
-    private static func dimensions(from data: Data) -> (Int, Int) {
+    nonisolated private static func dimensions(from data: Data) -> (Int, Int) {
         guard let src = CGImageSourceCreateWithData(data as CFData, nil),
               let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
               let w = props[kCGImagePropertyPixelWidth] as? Int,
@@ -239,7 +245,7 @@ final class ClipboardMonitor {
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
-    private static func sha256(_ data: Data) -> String {
+    nonisolated private static func sha256(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 }
