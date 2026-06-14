@@ -5,4 +5,4 @@ Package.resolved
 *.xcodeproj
 *.app/
 release-artifacts/
-.claude/settings.local.json
+.claude/
