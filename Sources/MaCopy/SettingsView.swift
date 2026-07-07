@@ -1,5 +1,6 @@
 import AppKit
 import KeyboardShortcuts
+import ServiceManagement
 import SwiftUI
 
 struct SettingsView: View {
@@ -54,6 +55,17 @@ struct SettingsView: View {
                         }
                         .labelsHidden()
                         .frame(width: 200)
+                    }
+                }
+
+                section(title: "Startup") {
+                    Toggle(isOn: launchAtLoginBinding) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Launch at login")
+                            Text("MaCopy starts automatically when you sign in.")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 
@@ -254,6 +266,34 @@ struct SettingsView: View {
                 promptRelaunch()
             }
         )
+    }
+
+    /// Writes the Login Items state, reflects the actual resulting status back
+    /// into the toggle, and guides the user to System Settings when macOS holds
+    /// the request for approval.
+    private var launchAtLoginBinding: Binding<Bool> {
+        Binding(
+            get: { settings.launchAtLogin },
+            set: { newValue in
+                let status = LaunchAtLogin.setEnabled(newValue)
+                settings.launchAtLogin = (status == .enabled)
+                if newValue && status == .requiresApproval {
+                    promptLoginItemsApproval()
+                }
+            }
+        )
+    }
+
+    @MainActor
+    private func promptLoginItemsApproval() {
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Allow MaCopy in Login Items")
+        alert.informativeText = String(localized: "macOS needs your approval. Open System Settings → General → Login Items and enable MaCopy.")
+        alert.addButton(withTitle: String(localized: "Open System Settings"))
+        alert.addButton(withTitle: String(localized: "Later"))
+        if alert.runModal() == .alertFirstButtonReturn {
+            SMAppService.openSystemSettingsLoginItems()
+        }
     }
 
     @MainActor

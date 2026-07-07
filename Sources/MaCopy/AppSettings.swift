@@ -45,6 +45,9 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(panelPinned, forKey: Keys.pinned) }
     }
 
+    /// Mirrors the system Login Items state. Not persisted - `SMAppService` owns it.
+    @Published var launchAtLogin: Bool = LaunchAtLogin.isEnabled
+
     @Published var filterSensitiveContent: Bool {
         didSet { UserDefaults.standard.set(filterSensitiveContent, forKey: Keys.filterSensitive) }
     }
