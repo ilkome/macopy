@@ -20,6 +20,33 @@ if [ -z "${SU_PUBLIC_ED_KEY:-}" ]; then
 fi
 
 echo "→ swift build -c release"
+# Reset any accessor left read-only by a previous run so this build regenerates cleanly.
+find .build -path "*/DerivedSources/resource_bundle_accessor.swift" -exec chmod u+w {} \; 2>/dev/null || true
+swift build -c release
+
+# SwiftPM's generated Bundle.module accessor resolves resources at
+# `Bundle.main.bundleURL/<name>.bundle`. For a bare executable that is the dir
+# next to the binary; inside a signed .app it is the .app ROOT, where nothing can
+# live without breaking the code signature (codesign rejects any unsealed content
+# in the bundle root). Redirect the lookup to Contents/Resources via
+# `Bundle.main.resourceURL` so the bundles sit in a signable location. The `??`
+# keeps a plain `swift build` run working, where resourceURL is nil. The file is
+# then marked read-only so the recompile below does not regenerate over the patch.
+PATCHED=0
+for ACC in .build/release/*/DerivedSources/resource_bundle_accessor.swift; do
+    [ -f "$ACC" ] || continue
+    chmod u+w "$ACC"
+    if ! grep -q "resourceURL ??" "$ACC"; then
+        perl -0pi -e 's/Bundle\.main\.bundleURL/(Bundle.main.resourceURL ?? Bundle.main.bundleURL)/g' "$ACC"
+    fi
+    chmod 444 "$ACC"
+    PATCHED=$((PATCHED + 1))
+done
+if [ "$PATCHED" -eq 0 ]; then
+    echo "✗ no resource_bundle_accessor.swift found to patch - KeyboardShortcuts would trap at runtime" >&2
+    exit 1
+fi
+echo "→ patched $PATCHED resource accessor(s) to resolve from Contents/Resources; recompiling"
 swift build -c release
 
 rm -rf "$APP_DIR"
@@ -45,6 +72,25 @@ else
     echo "✗ string catalog $CATALOG not found - localizations would be missing" >&2
     exit 1
 fi
+
+# SwiftPM resource bundles (e.g. KeyboardShortcuts_KeyboardShortcuts.bundle) go
+# into Contents/Resources - the location the patched Bundle.module accessor above
+# resolves via Bundle.main.resourceURL. Without them the first use of
+# KeyboardShortcuts.Recorder traps with "could not load resource bundle" on any
+# machine that lacks the .build/ fallback path (i.e. every machine but this one).
+shopt -s nullglob
+BUNDLE_COUNT=0
+for spm_bundle in .build/release/*.bundle; do
+    rm -rf "$RESOURCES_DIR/$(basename "$spm_bundle")"
+    cp -R "$spm_bundle" "$RESOURCES_DIR/"
+    BUNDLE_COUNT=$((BUNDLE_COUNT + 1))
+done
+shopt -u nullglob
+if [ "$BUNDLE_COUNT" -eq 0 ]; then
+    echo "✗ no SwiftPM resource bundles found in .build/release - KeyboardShortcuts would trap at runtime" >&2
+    exit 1
+fi
+echo "→ resource bundles: copied $BUNDLE_COUNT into Contents/Resources"
 
 FRAMEWORKS_DIR="$CONTENTS/Frameworks"
 mkdir -p "$FRAMEWORKS_DIR"
