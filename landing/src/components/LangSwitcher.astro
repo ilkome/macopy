@@ -1,0 +1,39 @@
+---
+import { getRelativeLocaleUrl } from "astro:i18n";
+import { useTranslations, type Lang } from "../i18n";
+
+interface Props {
+  lang: Lang;
+}
+const { lang } = Astro.props;
+const t = useTranslations(lang);
+
+const oneYear = "path=/; max-age=31536000; samesite=lax";
+const options: { code: Lang; label: string; href: string }[] = [
+  { code: "en", label: "EN", href: getRelativeLocaleUrl("en") },
+  { code: "ru", label: "RU", href: getRelativeLocaleUrl("ru") },
+];
+---
+
+<div
+  role="group"
+  aria-label={t.langSwitcher.label}
+  style="display: inline-flex; align-items: center; gap: 2px; padding: 2px; border-radius: 9999px; border: 1px solid var(--color-hairline);"
+>
+  {
+    options.map((o) => {
+      const active = o.code === lang;
+      return (
+        <a
+          href={o.href}
+          aria-current={active ? "true" : undefined}
+          onclick={`document.cookie='macopy_lang=${o.code}; ${oneYear}'`}
+          class="lang-opt"
+          style={`font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.02em; line-height: 1; padding: 5px 9px; border-radius: 9999px; text-decoration: none; color: ${active ? "var(--color-ink)" : "var(--color-ink-48)"}; background: ${active ? "rgba(0,0,0,0.06)" : "transparent"};`}
+        >
+          {o.label}
+        </a>
+      );
+    })
+  }
+</div>

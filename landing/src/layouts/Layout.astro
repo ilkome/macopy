@@ -1,0 +1,99 @@
+---
+import { Font } from "astro:assets";
+import { getAbsoluteLocaleUrl } from "astro:i18n";
+import "../styles/global.css";
+import type { Lang } from "../i18n";
+
+interface Props {
+  lang: Lang;
+  title: string;
+  description: string;
+}
+const { lang, title, description } = Astro.props;
+
+const enURL = getAbsoluteLocaleUrl("en");
+const ruURL = getAbsoluteLocaleUrl("ru");
+const canonical = lang === "ru" ? ruURL : enURL;
+const ogLocale = lang === "ru" ? "ru_RU" : "en_US";
+---
+
+<!doctype html>
+<html lang={lang}>
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="alternate" hreflang="en" href={enURL} />
+    <link rel="alternate" hreflang="ru" href={ruURL} />
+    <link rel="alternate" hreflang="x-default" href={enURL} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content={ogLocale} />
+    <meta property="og:url" content={canonical} />
+    <Font cssVariable="--font-inter" preload />
+
+    {/* Runs before paint (is:inline, not hoisted) so the right language wins
+        with no flash. Only "/" redirects; explicit pages keep their URL. */}
+    <script
+      is:inline
+      define:vars={{ pageLang: lang, defaultLang: "en", supported: ["en", "ru"] }}
+    >
+      (function () {
+        function setCookie(v) {
+          document.cookie =
+            "macopy_lang=" + v + "; path=/; max-age=31536000; samesite=lax";
+        }
+        var m = document.cookie.match(/(?:^|; )macopy_lang=([^;]*)/);
+        var pref = m && supported.indexOf(m[1]) !== -1 ? m[1] : null;
+        if (pageLang === defaultLang) {
+          if (!pref) {
+            var navs = navigator.languages || [navigator.language || ""];
+            pref = navs.some(function (l) {
+              return /^ru\b/i.test(l);
+            })
+              ? "ru"
+              : "en";
+            setCookie(pref);
+          }
+          if (pref !== defaultLang) {
+            location.replace("/" + pref);
+            return;
+          }
+        } else if (!pref) {
+          // Explicit URL wins for this view; remember it only if nothing was chosen
+          // before, so a shared /ru link never clobbers an English preference.
+          setCookie(pageLang);
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <slot />
+
+    <script>
+      // The page's entire client runtime: sticky-nav blur + scroll reveal.
+      const header = document.querySelector<HTMLElement>("[data-header]");
+      const onScroll = () =>
+        header?.classList.toggle("scrolled", window.scrollY > 8);
+      onScroll();
+      window.addEventListener("scroll", onScroll, { passive: true });
+
+      const io = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting) {
+              entry.target.classList.add("in");
+              io.unobserve(entry.target);
+            }
+          }
+        },
+        { threshold: 0.15, rootMargin: "0px 0px -8% 0px" },
+      );
+      document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
+    </script>
+  </body>
+</html>

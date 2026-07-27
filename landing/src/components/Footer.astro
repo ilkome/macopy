@@ -1,13 +1,17 @@
 ---
 import Logo from "./Logo.astro";
+import LangSwitcher from "./LangSwitcher.astro";
 import { LICENSE, RELEASES, REPO, SITE, VERSION } from "./links";
+import { useTranslations, type Lang } from "../i18n";
 
-const LINKS = [
-  { label: "GitHub", href: REPO },
-  { label: "Releases", href: RELEASES },
-  { label: "License (MIT)", href: LICENSE },
-  { label: "ilkome.com", href: SITE },
-];
+interface Props {
+  lang: Lang;
+}
+const { lang } = Astro.props;
+const t = useTranslations(lang);
+
+// hrefs are presentation; labels come from t.footer.links in the same order.
+const HREFS = [REPO, RELEASES, LICENSE, SITE];
 ---
 
 <footer style="background: var(--color-parchment); padding: 64px 0 40px;">
@@ -24,24 +28,23 @@ const LINKS = [
           <span class="t-tagline">MaCopy</span>
         </div>
         <p class="t-caption" style="color: var(--color-ink-48);">
-          A clipboard manager for macOS. There's only one system clipboard -
-          MaCopy just remembers what was on it.
+          {t.footer.tagline}
         </p>
       </div>
 
       <nav style="display: flex; gap: 48px; flex-wrap: wrap;">
         <div style="display: flex; flex-direction: column;">
-          <span class="t-caption" style="font-weight: 600; margin-bottom: 8px;">Project</span>
+          <span class="t-caption" style="font-weight: 600; margin-bottom: 8px;">{t.footer.projectHeading}</span>
           {
-            LINKS.map((l) => (
+            t.footer.links.map((label, i) => (
               <a
-                href={l.href}
+                href={HREFS[i]}
                 target="_blank"
                 rel="noreferrer"
                 class="t-body footer-link"
                 style="color: var(--color-ink-80); text-decoration: none; line-height: 2.1;"
               >
-                {l.label}
+                {label}
               </a>
             ))
           }
@@ -50,10 +53,13 @@ const LINKS = [
     </div>
 
     <div
-      style="margin-top: 48px; padding-top: 22px; border-top: 1px solid var(--color-hairline); display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap;"
+      style="margin-top: 48px; padding-top: 22px; border-top: 1px solid var(--color-hairline); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;"
     >
       <span class="t-fine" style="color: var(--color-ink-48);">© 2026 ilkome · v{VERSION}</span>
-      <span class="t-fine" style="color: var(--color-ink-48);">Made on a Mac, for the Mac.</span>
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <LangSwitcher lang={lang} />
+        <span class="t-fine" style="color: var(--color-ink-48);">{t.footer.madeOn}</span>
+      </div>
     </div>
   </div>
 </footer>

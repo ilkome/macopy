@@ -1,7 +1,12 @@
 ---
 import { REPO } from "./links";
+import { useTranslations, type Lang } from "../i18n";
 
-const POINTS = ["No accounts", "No telemetry", "No cloud sync", "On-device OCR"];
+interface Props {
+  lang: Lang;
+}
+const { lang } = Astro.props;
+const t = useTranslations(lang);
 ---
 
 <section style="background: var(--color-void); color: #fff; padding: clamp(80px, 12vw, 140px) 0;">
@@ -9,19 +14,19 @@ const POINTS = ["No accounts", "No telemetry", "No cloud sync", "On-device OCR"]
     class="reveal"
     style="max-width: 820px; margin: 0 auto; padding: 0 24px; text-align: center;"
   >
-    <h2 class="t-display" style="margin-bottom: 22px;">Everything stays on your Mac.</h2>
+    <h2 class="t-display" style="margin-bottom: 22px;">{t.privacy.heading}</h2>
     <p
       class="t-lead"
       style="color: var(--color-body-muted); font-weight: 300; margin: 0 auto; max-width: 40ch;"
     >
-      No accounts, no telemetry, no cloud sync. OCR runs on-device through Apple's
-      Vision framework. The history is a local SQLite file - and the source code is{" "}
-      <a href={REPO} target="_blank" rel="noreferrer" class="link-dark">on GitHub</a>.
+      {t.privacy.lead}<a href={REPO} target="_blank" rel="noreferrer" class="link-dark"
+        >{t.privacy.leadLink}</a
+      >{t.privacy.leadAfter}
     </p>
 
     <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 40px;">
       {
-        POINTS.map((p) => (
+        t.privacy.pills.map((p) => (
           <span
             class="t-caption"
             style="padding: 8px 16px; border-radius: 9999px; border: 1px solid rgba(255,255,255,0.16); color: #fff;"

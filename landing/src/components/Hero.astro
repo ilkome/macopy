@@ -2,6 +2,13 @@
 import PanelMockup from "./PanelMockup.astro";
 import Icon from "./Icon.astro";
 import { DOWNLOAD, REPO } from "./links";
+import { useTranslations, type Lang } from "../i18n";
+
+interface Props {
+  lang: Lang;
+}
+const { lang } = Astro.props;
+const t = useTranslations(lang);
 ---
 
 <section
@@ -18,30 +25,28 @@ import { DOWNLOAD, REPO } from "./links";
         style="display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 9999px; background: #fff; border: 1px solid var(--color-hairline); color: var(--color-ink-80); margin-bottom: 22px;"
       >
         <span style="width: 7px; height: 7px; border-radius: 9999px; background: #34c759;"></span>
-        Open source · macOS native
+        {t.hero.badge}
       </span>
 
-      <h1 class="t-hero" style="max-width: 14ch;">Your clipboard, but with a memory.</h1>
+      <h1 class="t-hero" style="max-width: 14ch;">{t.hero.title}</h1>
 
       <p class="t-lead" style="color: var(--color-ink-80); margin-top: 22px; max-width: 30ch;">
-        A native macOS clipboard manager. Lives in the menu bar. Opens with{" "}
-        <kbd
+        {t.hero.leadBefore}<kbd
           style="font-family: var(--font-mono); font-size: 0.82em; padding: 2px 8px; border-radius: 8px; background: #fff; border: 1px solid var(--color-hairline);"
-        >⌘`</kbd>{" "}
-        - pastes with Enter.
+        >⌘`</kbd>{t.hero.leadAfter}
       </p>
 
       <div style="display: flex; flex-wrap: wrap; gap: 14px; margin-top: 32px;">
         <a href={DOWNLOAD} class="btn btn-primary">
-          <Icon name="download" /> Download .dmg
+          <Icon name="download" /> {t.hero.download}
         </a>
         <a href={REPO} target="_blank" rel="noreferrer" class="btn btn-ghost">
-          <Icon name="github" /> View on GitHub
+          <Icon name="github" /> {t.hero.github}
         </a>
       </div>
 
       <p class="t-fine" style="color: var(--color-ink-48); margin-top: 18px;">
-        macOS 14 Sonoma or newer · Free · Open source (MIT)
+        {t.hero.fine}
       </p>
     </div>
 

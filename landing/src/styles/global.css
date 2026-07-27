@@ -285,6 +285,11 @@ body {
 .footer-link {
   transition: color 0.18s ease;
 }
+.lang-opt {
+  transition:
+    color 0.18s ease,
+    background-color 0.18s ease;
+}
 
 /* Gate hover behind a real pointer - touch taps shouldn't stick a hover state */
 @media (hover: hover) and (pointer: fine) {
@@ -297,6 +302,25 @@ body {
   .footer-link:hover {
     color: var(--color-primary) !important;
   }
+  .lang-opt:not([aria-current]):hover {
+    color: var(--color-ink) !important;
+  }
+}
+
+/* ----------------------------------------------------------------------------
+   Deep-dive showcase blocks - alternating copy / visual rows (Apple grammar).
+---------------------------------------------------------------------------- */
+.dd-block {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: clamp(32px, 5vw, 72px);
+  align-items: center;
+}
+.dd-block + .dd-block {
+  margin-top: clamp(72px, 10vw, 128px);
+}
+.dd-block.flip .dd-visual {
+  order: -1;
 }
 
 /* ----------------------------------------------------------------------------
@@ -322,6 +346,16 @@ body {
   .steps-grid {
     grid-template-columns: minmax(0, 1fr) !important;
     gap: 44px !important;
+  }
+  .dd-block,
+  .dd-block.flip {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 32px !important;
+  }
+  /* Visual always leads the copy on narrow screens, both orientations */
+  .dd-block .dd-visual,
+  .dd-block.flip .dd-visual {
+    order: -1 !important;
   }
 }
 

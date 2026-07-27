@@ -1,15 +1,30 @@
 ---
-const KEYS: [string, string][] = [
-  ["⌘`", "Show / hide panel (configurable)"],
-  ["↑ ↓", "Navigate the list"],
-  ["← →", "Switch tabs"],
-  ["↵", "Paste into the previous app"],
-  ["⇧ ↵", "Copy without pasting"],
-  ["⌘ S", "Toggle favorite"],
-  ["⌘ E", "Edit comment"],
-  ["⌘ ⌫", "Delete from history"],
-  ["Space", "Quick Look for images"],
-  ["Esc", "Hide the panel"],
+import { useTranslations, type Lang } from "../i18n";
+
+interface Props {
+  lang: Lang;
+}
+const { lang } = Astro.props;
+const t = useTranslations(lang);
+
+// Key glyphs are literal (never translated); same order as t.hotkeys.actions,
+// zipped by index.
+const GLYPHS = [
+  "⌘`",
+  "↑ ↓",
+  "← →",
+  "↵",
+  "⇧ ↵",
+  "⌘ S",
+  "⌘ L",
+  "⌘ W",
+  "⌘ E",
+  "⌘ D",
+  "⌘ ↵",
+  "⌘ 1-9",
+  "⌘ ⌫",
+  "Space",
+  "Esc",
 ];
 ---
 
@@ -19,10 +34,9 @@ const KEYS: [string, string][] = [
 >
   <div style="max-width: 1080px; margin: 0 auto; padding: 0 24px;">
     <div class="reveal" style="max-width: 26ch; margin-bottom: 48px;">
-      <h2 class="t-display">Built for hands that never leave the keyboard.</h2>
+      <h2 class="t-display">{t.hotkeys.heading}</h2>
       <p class="t-body" style="color: var(--color-body-muted); margin-top: 16px;">
-        Open, search, paste - the whole loop happens before your fingers reach
-        the trackpad.
+        {t.hotkeys.intro}
       </p>
     </div>
 
@@ -31,7 +45,7 @@ const KEYS: [string, string][] = [
       style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 56px; animation-delay: 80ms;"
     >
       {
-        KEYS.map(([k, action], i) => (
+        GLYPHS.map((k, i) => (
           <div
             style={`display: flex; align-items: center; gap: 16px; padding: 15px 0; border-top: ${i < 2 ? "none" : "1px solid rgba(255,255,255,0.08)"};`}
           >
@@ -41,7 +55,7 @@ const KEYS: [string, string][] = [
               ))}
             </span>
             <span class="t-body" style="color: var(--color-body-muted);">
-              {action}
+              {t.hotkeys.actions[i]}
             </span>
           </div>
         ))

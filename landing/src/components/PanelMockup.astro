@@ -1,7 +1,7 @@
 ---
 // A faithful recreation of MaCopy's floating NSPanel - this is the hero
 // "product render". It carries the single system drop-shadow.
-const TABS = ["Favorites", "All", "URLs", "Images", "Colors", "Code"];
+const TABS = ["Favorites", "All", "Folders", "Links", "Images", "Colors", "Code"];
 
 type Item = {
   app: string;
@@ -62,7 +62,7 @@ const mono = "var(--font-mono)";
 
 <div
   role="img"
-  aria-label="The MaCopy floating panel showing clipboard history with tabs for Favorites, All, URLs, Images, Colors and Code."
+  aria-label="The MaCopy floating panel showing clipboard history with tabs for Favorites, All, Folders, Links, Images, Colors and Code."
   style="width: 100%; max-width: 440px; border-radius: 18px; background: rgba(250, 250, 252, 0.86); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border: 1px solid rgba(0,0,0,0.06); box-shadow: var(--shadow-product); overflow: hidden; user-select: none;"
 >
   {/* Search field - pill, matching the CTA grammar */}

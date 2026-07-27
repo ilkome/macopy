@@ -1,0 +1,256 @@
+---
+import Icon from "./Icon.astro";
+import { useTranslations, type Lang } from "../i18n";
+
+interface Props {
+  lang: Lang;
+}
+const { lang } = Astro.props;
+const t = useTranslations(lang);
+const blocks = t.deepDive.blocks;
+
+// Apple-style alternating showcase blocks for the four headline features:
+// tabs, folders, comments and links. Copy comes from the dictionary; the mini
+// panel mockups are literal product UI (kept in-component, not translated).
+
+const mono = "var(--font-mono)";
+
+const eyebrow =
+  "font-family: var(--font-mono); font-size: 12px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary); display: inline-flex; align-items: center; gap: 8px; margin-bottom: 16px;";
+const stage =
+  "background: var(--color-parchment); border: 1px solid var(--color-hairline); border-radius: 24px; padding: clamp(22px, 4vw, 40px); display: flex; justify-content: center; align-items: center;";
+const panel =
+  "width: 100%; max-width: 372px; border-radius: 16px; background: rgba(250,250,252,0.94); border: 1px solid rgba(0,0,0,0.06); box-shadow: var(--shadow-product); overflow: hidden;";
+const listStyle =
+  "list-style: none; margin: 26px 0 0; padding: 0; display: flex; flex-direction: column; gap: 13px;";
+const liStyle =
+  "display: flex; gap: 11px; align-items: flex-start; color: var(--color-ink-80);";
+const checkBadge =
+  "flex: 0 0 auto; width: 20px; height: 20px; border-radius: 9999px; background: rgba(0,102,204,0.10); color: var(--color-primary); display: grid; place-items: center; margin-top: 1px;";
+
+const TABS = ["Favorites", "All", "Folders", "Links", "Images", "Colors", "Code"];
+
+const tabRow = (label: string, sel: boolean) =>
+  `font-weight: ${sel ? 600 : 400}; font-size: 11px; padding: 4px 9px; border-radius: 9999px; white-space: nowrap; color: ${sel ? "#fff" : "#333"}; background: ${sel ? "#0066cc" : "rgba(0,0,0,0.05)"};`;
+---
+
+<section id="highlights" style="background: var(--color-canvas); padding: clamp(80px, 11vw, 128px) 0;">
+  <div style="max-width: 1080px; margin: 0 auto; padding: 0 24px;">
+    <div class="reveal" style="max-width: 26ch; margin-bottom: clamp(56px, 8vw, 88px);">
+      <h2 class="t-display">{t.deepDive.heading}</h2>
+      <p class="t-body" style="color: var(--color-ink-80); margin-top: 16px;">
+        {t.deepDive.intro}
+      </p>
+    </div>
+
+    {/* ---------------------------------------------------------------- TABS */}
+    <div class="dd-block">
+      <div class="dd-copy reveal">
+        <span style={eyebrow}><Icon name="layers" size={15} /> {blocks[0].eyebrow}</span>
+        <h3 class="t-display" style="font-size: clamp(26px, 3.4vw, 34px);">{blocks[0].title}</h3>
+        <p class="t-body" style="color: var(--color-ink-80); margin-top: 14px; max-width: 42ch;">
+          {blocks[0].body}
+        </p>
+        <ul style={listStyle}>
+          {blocks[0].points.map((p) => (
+            <li style={liStyle}>
+              <span style={checkBadge}><Icon name="check" size={12} /></span>
+              <span class="t-body">{p}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div class="dd-visual reveal" style="animation-delay: 100ms;">
+        <div style={stage}>
+          <div style={panel}>
+            <div style="display: flex; gap: 5px; padding: 14px 12px 12px; overflow: hidden;">
+              {TABS.map((tab, i) => (
+                <span style={tabRow(tab, i === 1)}>{tab}</span>
+              ))}
+            </div>
+            <div style="padding: 0 8px 10px; display: flex; flex-direction: column; gap: 2px;">
+              {[
+                { glyph: "S", c: "#1d9bf0", text: "developer.apple.com/design", mono: false, badge: "LINK" },
+                { glyph: "F", c: "#a259ff", text: "#5E5CE6", mono: true, badge: "COLOR", swatch: "#5E5CE6" },
+                { glyph: "{ }", c: "#2f7bd6", text: "NSPanel(.nonactivatingPanel)", mono: true, badge: "CODE" },
+                { glyph: "⌘", c: "#1d1d1f", text: "Screenshot 2026-06-26", mono: false, badge: "IMG" },
+              ].map((r) => (
+                <div style="display: flex; gap: 10px; align-items: center; padding: 9px 12px; border-radius: 10px;">
+                  {r.swatch ? (
+                    <span style={`flex: 0 0 auto; width: 24px; height: 24px; border-radius: 6px; background: ${r.swatch}; border: 1px solid rgba(0,0,0,0.12);`} />
+                  ) : (
+                    <span style={`flex: 0 0 auto; width: 24px; height: 24px; border-radius: 6px; background: ${r.c}; color: #fff; display: grid; place-items: center; font-family: ${mono}; font-size: 10px; font-weight: 600;`}>{r.glyph}</span>
+                  )}
+                  <span style={`min-width: 0; flex: 1; font-family: ${r.mono ? mono : "var(--font-text)"}; font-size: 13px; color: #1d1d1f; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;`}>{r.text}</span>
+                  <span style="flex: 0 0 auto; font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.04em; color: #7a7a7a; border: 1px solid rgba(0,0,0,0.10); border-radius: 5px; padding: 2px 5px;">{r.badge}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* ------------------------------------------------------------- FOLDERS */}
+    <div class="dd-block flip">
+      <div class="dd-copy reveal">
+        <span style={eyebrow}><Icon name="folder" size={15} /> {blocks[1].eyebrow}</span>
+        <h3 class="t-display" style="font-size: clamp(26px, 3.4vw, 34px);">{blocks[1].title}</h3>
+        <p class="t-body" style="color: var(--color-ink-80); margin-top: 14px; max-width: 42ch;">
+          {blocks[1].body}
+        </p>
+        <ul style={listStyle}>
+          {blocks[1].points.map((p) => (
+            <li style={liStyle}>
+              <span style={checkBadge}><Icon name="check" size={12} /></span>
+              <span class="t-body">{p}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div class="dd-visual reveal" style="animation-delay: 100ms;">
+        <div style={stage}>
+          {/* The "Add to folder" overlay, sitting over a dimmed list - exactly how it appears in-app. */}
+          <div style={`${panel} position: relative;`}>
+            <div style="padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; filter: blur(0.5px); opacity: 0.5;">
+              {["Q3 launch checklist", "ilkome/macopy", "#5E5CE6"].map((tx, i) => (
+                <div style={`display: flex; gap: 10px; align-items: center; padding: 9px 12px; border-radius: 10px; background: ${i === 1 ? "rgba(0,102,204,0.12)" : "transparent"};`}>
+                  <span style="flex: 0 0 auto; width: 22px; height: 22px; border-radius: 6px; background: #c9c9cf;"></span>
+                  <span style="font-size: 13px; color: #1d1d1f; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{tx}</span>
+                </div>
+              ))}
+            </div>
+
+            <div style="position: absolute; inset: 0; background: rgba(0,0,0,0.18); display: grid; place-items: center; padding: 16px;">
+              <div style="width: 250px; border-radius: 12px; background: rgba(252,252,253,0.98); border: 1px solid rgba(0,0,0,0.10); box-shadow: 0 14px 34px rgba(0,0,0,0.22); overflow: hidden;">
+                <div style="font-size: 11px; font-weight: 600; color: #7a7a7a; padding: 12px 14px 8px;">Add to folder</div>
+                {[
+                  { name: "Project Aurora", on: true },
+                  { name: "Read later", on: false },
+                  { name: "Snippets", on: true },
+                  { name: "Brand & color", on: false },
+                ].map((f) => (
+                  <div style="display: flex; align-items: center; gap: 9px; padding: 6px 14px;">
+                    <span style={`flex: 0 0 auto; width: 15px; height: 15px; border-radius: 9999px; display: grid; place-items: center; ${f.on ? "background: #0066cc; color: #fff;" : "border: 1.5px solid #c2c2c8;"}`}>
+                      {f.on ? <Icon name="check" size={9} /> : null}
+                    </span>
+                    <span style={`font-size: 13px; color: ${f.on ? "#1d1d1f" : "#333"};`}>{f.name}</span>
+                  </div>
+                ))}
+                <div style="border-top: 1px solid rgba(0,0,0,0.08); display: flex; align-items: center; gap: 8px; padding: 10px 14px; color: #7a7a7a;">
+                  <span style="font-size: 13px;">+</span>
+                  <span style="font-size: 13px;">Create folder…</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* ------------------------------------------------------------ COMMENTS */}
+    <div class="dd-block">
+      <div class="dd-copy reveal">
+        <span style={eyebrow}><Icon name="message" size={15} /> {blocks[2].eyebrow}</span>
+        <h3 class="t-display" style="font-size: clamp(26px, 3.4vw, 34px);">{blocks[2].title}</h3>
+        <p class="t-body" style="color: var(--color-ink-80); margin-top: 14px; max-width: 42ch;">
+          {blocks[2].body}
+        </p>
+        <ul style={listStyle}>
+          {blocks[2].points.map((p) => (
+            <li style={liStyle}>
+              <span style={checkBadge}><Icon name="check" size={12} /></span>
+              <span class="t-body">{p}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div class="dd-visual reveal" style="animation-delay: 100ms;">
+        <div style={stage}>
+          <div style={panel}>
+            <div style="padding: 12px 12px 0;">
+              <div style="display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 10px; background: #0066cc; color: #fff;">
+                <span style={`flex: 0 0 auto; width: 24px; height: 24px; border-radius: 6px; background: rgba(255,255,255,0.22); display: grid; place-items: center; font-family: ${mono}; font-size: 12px;`}>N</span>
+                <span style="min-width: 0; flex: 1;">
+                  <span style="display: block; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9</span>
+                  <span style="display: block; font-size: 11px; color: rgba(255,255,255,0.78); margin-top: 3px;">Notes · staging token</span>
+                </span>
+                <span style="flex: 0 0 auto; color: rgba(255,255,255,0.9);"><Icon name="message" size={15} /></span>
+              </div>
+            </div>
+
+            <div style="padding: 14px 16px 16px;">
+              <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: #9a9a9f; margin-bottom: 7px;">Comment</div>
+              <div style="background: #fff; border: 1px solid rgba(0,0,0,0.10); border-radius: 9px; padding: 10px 12px; font-size: 13px; color: #1d1d1f; line-height: 1.45;">
+                Staging JWT - expires Friday, ask Sam to rotate
+                <span aria-hidden="true" style="display: inline-block; width: 1.5px; height: 15px; background: #0066cc; vertical-align: -3px; margin-left: 2px; animation: mc-caret 1.1s steps(1) infinite;"></span>
+              </div>
+              <div style="display: flex; gap: 14px; margin-top: 12px; color: #9a9a9f; font-size: 11px;">
+                <span>⌘W to edit</span>
+                <span>Saves as you type</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* --------------------------------------------------------------- LINKS */}
+    <div class="dd-block flip">
+      <div class="dd-copy reveal">
+        <span style={eyebrow}><Icon name="link" size={15} /> {blocks[3].eyebrow}</span>
+        <h3 class="t-display" style="font-size: clamp(26px, 3.4vw, 34px);">{blocks[3].title}</h3>
+        <p class="t-body" style="color: var(--color-ink-80); margin-top: 14px; max-width: 42ch;">
+          {blocks[3].body}
+        </p>
+        <ul style={listStyle}>
+          {blocks[3].points.map((p) => (
+            <li style={liStyle}>
+              <span style={checkBadge}><Icon name="check" size={12} /></span>
+              <span class="t-body">{p}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div class="dd-visual reveal" style="animation-delay: 100ms;">
+        <div style={stage}>
+          <div style={panel}>
+            <div style="padding: 14px 14px 4px;">
+              <div style={`font-family: ${mono}; font-size: 11px; color: #0066cc; text-decoration: underline; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;`}>https://github.com/ilkome/macopy</div>
+              <div style="margin-top: 10px; display: flex; gap: 11px; align-items: flex-start; background: rgba(0,0,0,0.04); border-radius: 9px; padding: 11px;">
+                <div style="min-width: 0; flex: 1;">
+                  <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 5px;">
+                    <span style="width: 14px; height: 14px; border-radius: 3px; background: #1d1d1f; color: #fff; display: grid; place-items: center; font-size: 9px;"></span>
+                    <span style="font-size: 11px; font-weight: 500; color: #7a7a7a;">GitHub</span>
+                  </div>
+                  <div style="font-size: 13px; font-weight: 600; color: #1d1d1f; line-height: 1.3;">ilkome/macopy</div>
+                  <div style="font-size: 12px; color: #7a7a7a; line-height: 1.4; margin-top: 3px;">Your clipboard, but with a memory. A native macOS clipboard manager.</div>
+                </div>
+                <span style="flex: 0 0 auto; width: 66px; height: 66px; border-radius: 7px; background: linear-gradient(135deg, #5E5CE6, #BF5AF2);"></span>
+              </div>
+            </div>
+
+            <div style="padding: 8px 8px 12px;">
+              <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: #9a9a9f; padding: 6px 8px 4px;">Grouped by site</div>
+              {[
+                { host: "github.com", n: 47 },
+                { host: "developer.apple.com", n: 23 },
+                { host: "stripe.com", n: 12 },
+              ].map((d, i) => (
+                <div style={`display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 9px; background: ${i === 0 ? "rgba(0,102,204,0.10)" : "transparent"};`}>
+                  <span style="flex: 0 0 auto; color: #9a9a9f;"><Icon name="link" size={15} /></span>
+                  <span style={`flex: 1; font-size: 13px; font-weight: 500; color: ${i === 0 ? "#1d1d1f" : "#444"};`}>{d.host}</span>
+                  <span style="flex: 0 0 auto; font-size: 11px; color: #9a9a9f;">{d.n}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

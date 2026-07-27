@@ -1,58 +1,58 @@
 ---
 import Icon from "./Icon.astro";
+import { useTranslations, type Lang } from "../i18n";
 
-type IconName = "tags" | "scan" | "search" | "link" | "shield" | "focus";
-const FEATURES: { icon: IconName; title: string; body: string }[] = [
-  {
-    icon: "tags",
-    title: "Smart type detection",
-    body: "URLs, colors, images, code and plain text are sorted automatically into Favorites, All, URLs, Images, Colors and Code tabs.",
-  },
-  {
-    icon: "scan",
-    title: "On-device OCR",
-    body: "Vision reads text inside screenshots in Russian and English. Search finds words that only ever existed as pixels.",
-  },
-  {
-    icon: "search",
-    title: "Fuzzy search",
-    body: "Filters across content, OCR text, your comments and the name of the app the clip came from - as you type.",
-  },
-  {
-    icon: "link",
-    title: "Link previews",
-    body: "For URLs, MaCopy pulls the title, description and image via OpenGraph, so a link looks like the page behind it.",
-  },
-  {
-    icon: "shield",
-    title: "Private data filter",
-    body: "Honors org.nspasteboard.ConcealedType. Passwords from 1Password and Bitwarden never enter the history.",
-  },
-  {
-    icon: "focus",
-    title: "Doesn't steal focus",
-    body: "A non-activating NSPanel. The caret stays in your original field, so ⌘V lands exactly where you were typing.",
-  },
+interface Props {
+  lang: Lang;
+}
+const { lang } = Astro.props;
+const t = useTranslations(lang);
+
+// Icons are code identifiers (not prose); kept here in the same order as
+// t.features.items and zipped by index.
+type IconName =
+  | "scan"
+  | "search"
+  | "tags"
+  | "shield"
+  | "key"
+  | "lock"
+  | "focus"
+  | "eye"
+  | "clock";
+const ICONS: IconName[] = [
+  "scan",
+  "search",
+  "tags",
+  "shield",
+  "key",
+  "lock",
+  "focus",
+  "eye",
+  "clock",
 ];
 ---
 
-<section id="features" style="background: var(--color-canvas); padding: clamp(72px, 10vw, 112px) 0;">
+<section id="features" style="background: var(--color-parchment); padding: clamp(72px, 10vw, 112px) 0;">
   <div style="max-width: 1080px; margin: 0 auto; padding: 0 24px;">
-    <div class="reveal" style="max-width: 22ch; margin-bottom: 56px;">
-      <h2 class="t-display">Everything you copied. Right where you left it.</h2>
+    <div class="reveal" style="max-width: 30ch; margin-bottom: 56px;">
+      <h2 class="t-display">{t.features.heading}</h2>
+      <p class="t-body" style="color: var(--color-ink-80); margin-top: 16px;">
+        {t.features.intro}
+      </p>
     </div>
     <div
       class="feature-grid"
       style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px;"
     >
       {
-        FEATURES.map((f, i) => (
+        t.features.items.map((f, i) => (
           <div
             class="reveal"
             style={`background: var(--color-canvas); border: 1px solid var(--color-hairline); border-radius: 18px; padding: 28px; animation-delay: ${(i % 3) * 80}ms;`}
           >
             <span style="color: var(--color-primary); display: block; margin-bottom: 18px;">
-              <Icon name={f.icon} />
+              <Icon name={ICONS[i]} />
             </span>
             <h3 class="t-body-strong" style="margin-bottom: 8px;">
               {f.title}

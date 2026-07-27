@@ -1,0 +1,29 @@
+---
+import type { Lang } from "../i18n";
+import Nav from "./Nav.astro";
+import Hero from "./Hero.astro";
+import DeepDive from "./DeepDive.astro";
+import Features from "./Features.astro";
+import Hotkeys from "./Hotkeys.astro";
+import HowItWorks from "./HowItWorks.astro";
+import Privacy from "./Privacy.astro";
+import Install from "./Install.astro";
+import Footer from "./Footer.astro";
+
+interface Props {
+  lang: Lang;
+}
+const { lang } = Astro.props;
+---
+
+<Nav lang={lang} />
+<main>
+  <Hero lang={lang} />
+  <DeepDive lang={lang} />
+  <Features lang={lang} />
+  <Hotkeys lang={lang} />
+  <HowItWorks lang={lang} />
+  <Privacy lang={lang} />
+  <Install lang={lang} />
+</main>
+<Footer lang={lang} />

@@ -1,6 +1,13 @@
 ---
 import Icon from "./Icon.astro";
 import { DOWNLOAD, REPO } from "./links";
+import { useTranslations, type Lang } from "../i18n";
+
+interface Props {
+  lang: Lang;
+}
+const { lang } = Astro.props;
+const t = useTranslations(lang);
 
 const card =
   "background: var(--color-canvas); border: 1px solid var(--color-hairline); border-radius: 18px; padding: 28px; display: flex; flex-direction: column; gap: 16px;";
@@ -13,7 +20,7 @@ const cloneCmd = `git clone ${REPO}\ncd macopy\n./build-app.sh`;
 <section id="install" style="background: var(--color-canvas); padding: clamp(72px, 10vw, 112px) 0;">
   <div style="max-width: 1080px; margin: 0 auto; padding: 0 24px;">
     <div class="reveal" style="margin-bottom: 56px; max-width: 24ch;">
-      <h2 class="t-display">Install in a minute, or build it yourself.</h2>
+      <h2 class="t-display">{t.install.heading}</h2>
     </div>
 
     <div
@@ -21,32 +28,30 @@ const cloneCmd = `git clone ${REPO}\ncd macopy\n./build-app.sh`;
       style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; align-items: start;"
     >
       <div class="reveal" style={card}>
-        <h3 class="t-body-strong">Direct download</h3>
+        <h3 class="t-body-strong">{t.install.cards.download.title}</h3>
         <p class="t-body" style="color: var(--color-ink-80); flex: 1;">
-          Grab the signed <code style="font-family: var(--font-mono); font-size: 14px;">.dmg</code> from
-          GitHub Releases, drag it into Applications, and right-click → Open on first launch.
+          {t.install.cards.download.body}
         </p>
         <a href={DOWNLOAD} class="btn btn-primary" style="align-self: flex-start;">
-          <Icon name="download" /> Download .dmg
+          <Icon name="download" /> {t.install.cards.download.cta}
         </a>
       </div>
 
       <div class="reveal" style={`${card} animation-delay: 80ms;`}>
-        <h3 class="t-body-strong">From source</h3>
+        <h3 class="t-body-strong">{t.install.cards.source.title}</h3>
         <p class="t-body" style="color: var(--color-ink-80);">
-          Swift 6 toolchain (Xcode 16+). One script builds, bundles and signs the app.
+          {t.install.cards.source.body}
         </p>
         <pre style={codeStyle}><code>{cloneCmd}</code></pre>
       </div>
 
       <div class="reveal" style={`${card} animation-delay: 160ms;`}>
-        <h3 class="t-body-strong">Updates</h3>
+        <h3 class="t-body-strong">{t.install.cards.updates.title}</h3>
         <p class="t-body" style="color: var(--color-ink-80); flex: 1;">
-          Automatic through Sparkle. MaCopy checks the appcast, verifies the EdDSA
-          signature and updates itself - or trigger it from the menu bar.
+          {t.install.cards.updates.body}
         </p>
         <a href={REPO} target="_blank" rel="noreferrer" class="link t-body" style="align-self: flex-start;">
-          Check for Updates →
+          {t.install.cards.updates.cta}
         </a>
       </div>
     </div>

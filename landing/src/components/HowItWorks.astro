@@ -1,46 +1,36 @@
 ---
 import Icon from "./Icon.astro";
+import { useTranslations, type Lang } from "../i18n";
 
+interface Props {
+  lang: Lang;
+}
+const { lang } = Astro.props;
+const t = useTranslations(lang);
+
+// Icons + numbering are presentation; same order as t.howItWorks.steps.
 type IconName = "key" | "bolt" | "return";
-const STEPS: { icon: IconName; n: string; title: string; body: string }[] = [
-  {
-    icon: "key",
-    n: "01",
-    title: "Press ⌘` to open",
-    body: "The panel floats above your work without taking focus from the app underneath.",
-  },
-  {
-    icon: "bolt",
-    n: "02",
-    title: "Type to search",
-    body: "Fuzzy matching narrows the history instantly - including text recognized inside screenshots.",
-  },
-  {
-    icon: "return",
-    n: "03",
-    title: "Hit Enter",
-    body: "It pastes straight into the app you came from. The caret never moved.",
-  },
-];
+const ICONS: IconName[] = ["key", "bolt", "return"];
+const NUMS = ["01", "02", "03"];
 ---
 
 <section id="how" style="background: var(--color-parchment); padding: clamp(72px, 10vw, 112px) 0;">
   <div style="max-width: 1080px; margin: 0 auto; padding: 0 24px;">
     <div class="reveal" style="margin-bottom: 56px;">
-      <h2 class="t-display">Three keys. That's the whole workflow.</h2>
+      <h2 class="t-display">{t.howItWorks.heading}</h2>
     </div>
     <div
       class="steps-grid"
       style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px;"
     >
       {
-        STEPS.map((s, i) => (
+        t.howItWorks.steps.map((s, i) => (
           <div class="reveal" style={`animation-delay: ${i * 90}ms;`}>
             <span style="color: var(--color-primary); display: block; margin-bottom: 18px;">
-              <Icon name={s.icon} size={32} />
+              <Icon name={ICONS[i]} size={32} />
             </span>
             <span class="t-fine" style="font-family: var(--font-mono); color: var(--color-ink-48);">
-              {s.n}
+              {NUMS[i]}
             </span>
             <h3 class="t-tagline" style="margin-top: 6px; margin-bottom: 10px;">
               {s.title}
