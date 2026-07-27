@@ -80,6 +80,7 @@ Without this permission content is still copied to the pasteboard, but the autom
 - **Enter** — paste the selected item into the window that was active before the panel opened
 - **⇧+Enter** — copy to pasteboard without pasting
 - **⌘+Enter** — open the selected link in the default browser (URL items only)
+- **⌘1 … ⌘9** — paste one of the first 9 items directly (hold ⌘ to reveal their numbers in place of the type icon)
 - **Double click** — paste
 - **Esc** — hide the panel
 - **⌘⌫** — delete the selected item from history (when the search/comment field is empty; otherwise the standard "delete to start of line" applies)

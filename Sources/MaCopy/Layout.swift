@@ -3,6 +3,7 @@ import SwiftUI
 enum Layout {
     static let rowHeight: CGFloat = 48
     static let visibleRows = 9
+    static let sectionHeaderHeight: CGFloat = 24
     static let searchHeight: CGFloat = 44
     static let tabsHeight: CGFloat = 36
     static let defaultListWidth: CGFloat = 380
@@ -29,7 +30,8 @@ enum Layout {
     static var maxListWidth: CGFloat {
         panelWidth - splitDividerWidth - minPreviewWidth
     }
-    static var listHeight: CGFloat { rowHeight * CGFloat(visibleRows) }
+    // +1 section header so the 9th quick-paste row isn't clipped by the leading group title.
+    static var listHeight: CGFloat { rowHeight * CGFloat(visibleRows) + sectionHeaderHeight }
     static var panelHeight: CGFloat {
         searchHeight + 1 + tabsHeight + 1 + listHeight
     }

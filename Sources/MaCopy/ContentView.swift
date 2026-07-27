@@ -24,6 +24,9 @@ struct ContentView: View {
     @State private var sectionsByID: [String: RowSection] = [:]
     @State private var firstRowSectionID: [UUID: String] = [:]
     @State private var visibleListCache: [Selectable] = []
+    // First 9 visible items get a Cmd+1..9 quick-paste number badge, shown only while Cmd is held.
+    @State private var quickPasteNumbers: [UUID: Int] = [:]
+    @State private var cmdHeld = false
     @State private var lastAppliedStructuralHash: Int? = nil
     @State private var minuteTick = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
     @State private var searchTask: Task<Void, Never>?
@@ -163,7 +166,15 @@ struct ContentView: View {
             cloneSelected: { cloneSelected() },
             openSelectedURL: { openSelectedURL() },
             hidePanel: { AppDelegate.shared?.hidePanel() },
-            openSettings: { uiState.showSettings = true }
+            openSettings: { uiState.showSettings = true },
+            pasteAt: { n in
+                guard n >= 1, n <= visibleListCache.count,
+                      case let .item(id) = visibleListCache[n - 1],
+                      let row = rowsById[id] else { return false }
+                paste(row.item)
+                return true
+            },
+            setCommandHeld: { if cmdHeld != $0 { cmdHeld = $0 } }
         ))
         monitor.install()
         keyMonitor = monitor
@@ -431,6 +442,10 @@ struct ContentView: View {
         firstRowSectionID = newFirstRowSectionID
         let visible = SelectionHelpers.visibleSelectables(sections: newSections, tab: tab, query: q)
         visibleListCache = visible
+        quickPasteNumbers = Dictionary(uniqueKeysWithValues: visible.prefix(9).enumerated().compactMap { i, sel in
+            if case let .item(id) = sel { return (id, i + 1) }
+            return nil
+        })
         let newSelection: Selectable?
         if let pending = pendingSelectionAfterClone, visible.contains(.item(pending)) {
             pendingSelectionAfterClone = nil
@@ -665,7 +680,7 @@ struct ContentView: View {
     }
 
     private func itemRowView(_ row: RowModel) -> some View {
-        ItemRow(model: row)
+        ItemRow(model: row, quickNumber: cmdHeld ? quickPasteNumbers[row.id] : nil)
             .id(row.id)
             .contentShape(Rectangle())
             .onTapGesture(count: 2) { paste(row.item) }

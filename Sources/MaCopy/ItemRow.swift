@@ -5,6 +5,7 @@ struct ItemRow: View {
     let model: RowModel
     var displayOverride: String? = nil
     var showBadge: Bool = true
+    var quickNumber: Int? = nil
 
     private var item: ClipboardItemRecord { model.item }
     private var selected: Bool { model.isSelected }
@@ -26,7 +27,17 @@ struct ItemRow: View {
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
             if showBadge {
-                leadingBadge
+                // Both subtrees stay in the tree; only opacity toggles. A structural if/else swap
+                // here gets stuck in a LazyVStack row (lower rows keep the number after ⌘ is released).
+                ZStack {
+                    leadingBadge
+                        .opacity(quickNumber == nil ? 1 : 0)
+                    Text(quickNumber.map(String.init) ?? "")
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 26, height: 26)
+                        .opacity(quickNumber == nil ? 0 : 1)
+                }
             }
             textView
                 .frame(maxWidth: .infinity, alignment: .leading)
