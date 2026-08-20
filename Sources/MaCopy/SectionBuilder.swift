@@ -18,7 +18,7 @@ enum SectionBuilder {
         if tab == .folders {
             return []
         }
-        return groupByTime(list)
+        return groupByTime(list, tab: tab)
     }
 
     private static func splitByURLPriority(_ list: [RowModel], searchActive: Bool) -> [RowSection] {
@@ -34,7 +34,7 @@ enum SectionBuilder {
         return sections
     }
 
-    private static func groupByTime(_ list: [RowModel]) -> [RowSection] {
+    private static func groupByTime(_ list: [RowModel], tab: Tab) -> [RowSection] {
         let now = Date()
         let cal = Calendar.current
         // Precompute the four bucket boundaries once; clipboard dates are always in the past, so
@@ -63,11 +63,18 @@ enum SectionBuilder {
 
         var groups: [Int: [RowModel]] = [:]
         for row in list {
-            groups[bucket(row.item.updatedAt), default: []].append(row)
+            let date = tab == .favorites ? row.item.lastFavoriteUsedAt : row.item.updatedAt
+            groups[bucket(date), default: []].append(row)
         }
         return (0..<titles.count).compactMap { i in
             guard let arr = groups[i], !arr.isEmpty else { return nil }
-            return RowSection(id: "bucket-\(i)", title: titles[i], rows: arr)
+            let sorted = arr.sorted { lhs, rhs in
+                let lhsDate = tab == .favorites ? lhs.item.lastFavoriteUsedAt : lhs.item.updatedAt
+                let rhsDate = tab == .favorites ? rhs.item.lastFavoriteUsedAt : rhs.item.updatedAt
+                if lhsDate != rhsDate { return lhsDate > rhsDate }
+                return lhs.id.uuidString < rhs.id.uuidString
+            }
+            return RowSection(id: "bucket-\(i)", title: titles[i], rows: sorted)
         }
     }
 
@@ -80,6 +87,9 @@ enum SectionBuilder {
         let multi = groups.filter { $0.value.count > 1 }
         let single = groups.filter { $0.value.count == 1 }
         let sortedMulti = multi.keys.sorted { lhs, rhs in
+            let lUsed = multi[lhs]?.map(\.item.lastSiteUsedAt).max() ?? .distantPast
+            let rUsed = multi[rhs]?.map(\.item.lastSiteUsedAt).max() ?? .distantPast
+            if lUsed != rUsed { return lUsed > rUsed }
             let lc = multi[lhs]?.count ?? 0
             let rc = multi[rhs]?.count ?? 0
             if lc != rc { return lc > rc }
@@ -88,13 +98,21 @@ enum SectionBuilder {
             return lTop > rTop
         }
         var sections: [RowSection] = sortedMulti.map { domain in
-            let arr = multi[domain]!
+            let arr = multi[domain]!.sorted { lhs, rhs in
+                if lhs.item.lastSiteUsedAt != rhs.item.lastSiteUsedAt {
+                    return lhs.item.lastSiteUsedAt > rhs.item.lastSiteUsedAt
+                }
+                return lhs.id.uuidString < rhs.id.uuidString
+            }
             let title = "\(domain) · \(arr.count)"
             return RowSection(id: domainSectionPrefix + domain, title: title, rows: arr)
         }
         if !single.isEmpty {
             let combined = single.values.flatMap { $0 }.sorted {
-                $0.item.updatedAt > $1.item.updatedAt
+                if $0.item.lastSiteUsedAt != $1.item.lastSiteUsedAt {
+                    return $0.item.lastSiteUsedAt > $1.item.lastSiteUsedAt
+                }
+                return $0.id.uuidString < $1.id.uuidString
             }
             sections.append(RowSection(
                 id: domainSectionPrefix + otherDomainKey,

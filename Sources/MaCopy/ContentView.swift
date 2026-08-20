@@ -24,8 +24,6 @@ struct ContentView: View {
     @State private var sectionsByID: [String: RowSection] = [:]
     @State private var firstRowSectionID: [UUID: String] = [:]
     @State private var visibleListCache: [Selectable] = []
-    // First 9 visible items get a Cmd+1..9 quick-paste number badge, shown only while Cmd is held.
-    @State private var quickPasteNumbers: [UUID: Int] = [:]
     @State private var cmdHeld = false
     @State private var lastAppliedStructuralHash: Int? = nil
     @State private var minuteTick = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
@@ -73,11 +71,18 @@ struct ContentView: View {
         tab == .folders && query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    /// Loaded rows belonging to the active folder, newest first. Members that aged out
+    /// Loaded rows belonging to the active folder, most recently used first. Members that aged out
     /// of the 2000-item window simply aren't in rowsById (mirrors favorites behavior).
     private var currentFolderRows: [RowModel] {
         guard let fid = selectedFolderID, let ids = store.folderMembership[fid] else { return [] }
-        return ids.compactMap { rowsById[$0] }.sorted { $0.item.updatedAt > $1.item.updatedAt }
+        let useDates = store.folderItemLastUsedAt[fid] ?? [:]
+        return ids.compactMap { rowsById[$0] }.sorted { lhs, rhs in
+            let lhsDate = useDates[lhs.id] ?? .distantPast
+            let rhsDate = useDates[rhs.id] ?? .distantPast
+            if lhsDate != rhsDate { return lhsDate > rhsDate }
+            if lhs.item.updatedAt != rhs.item.updatedAt { return lhs.item.updatedAt > rhs.item.updatedAt }
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
     }
 
     private func folderMemberCount(_ id: UUID) -> Int {
@@ -165,7 +170,10 @@ struct ContentView: View {
             deleteSelected: { deleteSelected() },
             cloneSelected: { cloneSelected() },
             openSelectedURL: { openSelectedURL() },
-            hidePanel: { AppDelegate.shared?.hidePanel() },
+            hidePanel: {
+                setCommandHeld(false)
+                AppDelegate.shared?.hidePanel()
+            },
             openSettings: { uiState.showSettings = true },
             pasteAt: { n in
                 guard n >= 1, n <= visibleListCache.count,
@@ -174,15 +182,30 @@ struct ContentView: View {
                 paste(row.item)
                 return true
             },
-            setCommandHeld: { if cmdHeld != $0 { cmdHeld = $0 } }
+            setCommandHeld: { setCommandHeld($0) }
         ))
         monitor.install()
         keyMonitor = monitor
     }
 
     private func removeKeyMonitor() {
+        setCommandHeld(false)
         keyMonitor?.remove()
         keyMonitor = nil
+    }
+
+    private func setCommandHeld(_ held: Bool) {
+        guard cmdHeld != held else { return }
+        cmdHeld = held
+        refreshQuickPasteNumbers()
+    }
+
+    private func refreshQuickPasteNumbers() {
+        SelectionHelpers.applyQuickPasteNumbers(
+            rowsById: rowsById,
+            visible: visibleListCache,
+            commandHeld: cmdHeld
+        )
     }
 
     @ViewBuilder
@@ -324,7 +347,10 @@ struct ContentView: View {
     /// Cheap reconcile check: avoids a full Equatable memcmp of `text`/`ocrText`.
     /// Covers every mutation path - updateText bumps updatedAt+contentHash, while
     /// favorite/comment/ocr edits don't touch updatedAt, so each is compared directly.
-    private func rowItemUnchanged(_ a: ClipboardItemRecord, _ b: ClipboardItemRecord) -> Bool {
+    nonisolated static func rowItemUnchanged(
+        _ a: ClipboardItemRecord,
+        _ b: ClipboardItemRecord
+    ) -> Bool {
         a.id == b.id
             && a.updatedAt == b.updatedAt
             && a.contentHash == b.contentHash
@@ -332,16 +358,34 @@ struct ContentView: View {
             && a.comment == b.comment
             && a.imagePath == b.imagePath
             && a.ocrText == b.ocrText
+            && a.copyCount == b.copyCount
+            && a.pasteCount == b.pasteCount
+            && a.lastFavoriteUsedAt == b.lastFavoriteUsedAt
+            && a.lastSiteUsedAt == b.lastSiteUsedAt
     }
 
     private func applyEmptyQuery(forceFirst: Bool) {
         let previousById = rowsById
         let built: [RowModel] = allItems
             .filter { tab.matches($0) }
+            .sorted { lhs, rhs in
+                let lhsDate: Date = switch tab {
+                case .favorites: lhs.lastFavoriteUsedAt
+                case .urls: lhs.lastSiteUsedAt
+                default: lhs.updatedAt
+                }
+                let rhsDate: Date = switch tab {
+                case .favorites: rhs.lastFavoriteUsedAt
+                case .urls: rhs.lastSiteUsedAt
+                default: rhs.updatedAt
+                }
+                if lhsDate != rhsDate { return lhsDate > rhsDate }
+                return lhs.updatedAt > rhs.updatedAt
+            }
             .map { item in
                 if let existing = previousById[item.id] {
                     if existing.match != nil { existing.match = nil }
-                    if !rowItemUnchanged(existing.item, item) { existing.item = item }
+                    if !Self.rowItemUnchanged(existing.item, item) { existing.item = item }
                     return existing
                 }
                 return RowModel(item: item, match: nil)
@@ -357,7 +401,7 @@ struct ContentView: View {
             .map { item in
                 if let existing = previousById[item.id] {
                     if existing.match != nil { existing.match = nil }
-                    if !rowItemUnchanged(existing.item, item) { existing.item = item }
+                    if !Self.rowItemUnchanged(existing.item, item) { existing.item = item }
                     return existing
                 }
                 return RowModel(item: item, match: nil)
@@ -377,7 +421,7 @@ struct ContentView: View {
             let match = SearchMatch(score: r.score, field: r.field, ranges: r.ranges)
             if let existing = previousById[item.id] {
                 if existing.match != match { existing.match = match }
-                if !rowItemUnchanged(existing.item, item) { existing.item = item }
+                if !Self.rowItemUnchanged(existing.item, item) { existing.item = item }
                 built.append(existing)
             } else {
                 built.append(RowModel(item: item, match: match))
@@ -400,7 +444,14 @@ struct ContentView: View {
             q: q,
             urlFirst: urlFirst,
             tab: tab,
-            rows: built.map { ($0.id, $0.item.updatedAt) }
+            rows: built.map { row in
+                let date: Date = switch tab {
+                case .favorites: row.item.lastFavoriteUsedAt
+                case .urls: row.item.lastSiteUsedAt
+                default: row.item.updatedAt
+                }
+                return (row.id, date)
+            }
         )
         if lastAppliedStructuralHash == newHash {
             rows = built
@@ -433,6 +484,11 @@ struct ContentView: View {
                 }
             }
         }
+        SelectionHelpers.applyQuickPasteNumbers(
+            rowsById: rowsById,
+            visible: [],
+            commandHeld: false
+        )
         rows = built
         sections = newSections
         rowsById = newById
@@ -442,11 +498,18 @@ struct ContentView: View {
         firstRowSectionID = newFirstRowSectionID
         let visible = SelectionHelpers.visibleSelectables(sections: newSections, tab: tab, query: q)
         visibleListCache = visible
-        quickPasteNumbers = Dictionary(uniqueKeysWithValues: visible.prefix(9).enumerated().compactMap { i, sel in
-            if case let .item(id) = sel { return (id, i + 1) }
-            return nil
-        })
+        refreshQuickPasteNumbers()
         let newSelection: Selectable?
+        let currentSelectionStillVisible: Bool = {
+            guard let selection else { return false }
+            if visible.contains(selection) { return true }
+            guard case let .item(id) = selection, newById[id] != nil else { return false }
+            if urlMode { return newDomainByItem[id] != nil }
+            if folderMode, let folderID = selectedFolderID {
+                return store.folderMembership[folderID]?.contains(id) == true
+            }
+            return false
+        }()
         if let pending = pendingSelectionAfterClone, visible.contains(.item(pending)) {
             pendingSelectionAfterClone = nil
             newSelection = .item(pending)
@@ -455,7 +518,7 @@ struct ContentView: View {
             }
         } else if forceFirst {
             newSelection = visible.first
-        } else if let sel = selection, visible.contains(sel) {
+        } else if let sel = selection, currentSelectionStillVisible {
             newSelection = sel
         } else {
             newSelection = visible.first
@@ -515,6 +578,7 @@ struct ContentView: View {
     }
 
     private func resetToTop(proxy: ScrollViewProxy) {
+        setCommandHeld(false)
         query = ""
         tab = .all
         searchFocused = true
@@ -680,7 +744,7 @@ struct ContentView: View {
     }
 
     private func itemRowView(_ row: RowModel) -> some View {
-        ItemRow(model: row, quickNumber: cmdHeld ? quickPasteNumbers[row.id] : nil)
+        ItemRow(model: row)
             .id(row.id)
             .contentShape(Rectangle())
             .onTapGesture(count: 2) { paste(row.item) }
@@ -969,15 +1033,38 @@ struct ContentView: View {
 
     private func paste(_ override: ClipboardItemRecord? = nil) {
         if let override {
-            if !Paster.shared.paste(override) { removeItem(override) }
+            if Paster.shared.paste(override) {
+                recordSectionUse(itemID: override.id)
+            } else {
+                removeItem(override)
+            }
             return
         }
         guard case let .item(id) = selection, let row = rowsById[id] else { return }
-        if !Paster.shared.paste(row.item) { removeItem(row.item) }
+        if Paster.shared.paste(row.item) {
+            recordSectionUse(itemID: row.id)
+        } else {
+            removeItem(row.item)
+        }
     }
 
     private func copyOnly(_ item: ClipboardItemRecord) {
-        if !Paster.shared.copyOnly(item) { removeItem(item) }
+        if Paster.shared.copyOnly(item) {
+            recordSectionUse(itemID: item.id)
+        } else {
+            removeItem(item)
+        }
+    }
+
+    private func recordSectionUse(itemID: UUID) {
+        if folderMode, let folderID = selectedFolderID {
+            store.recordFolderUse(folderId: folderID, itemId: itemID)
+        } else if urlMode {
+            try? ClipboardItemRepository.recordSiteUse(id: itemID)
+        } else if tab == .favorites,
+                  query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            try? ClipboardItemRepository.recordFavoriteUse(id: itemID)
+        }
     }
 
     private func copyOnlySelected() {

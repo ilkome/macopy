@@ -7,11 +7,13 @@ struct FolderItemRecord: Codable, Hashable, Sendable {
     var folderId: UUID
     var itemId: UUID
     var addedAt: Date
+    var lastUsedAt: Date
 
-    init(folderId: UUID, itemId: UUID, addedAt: Date = Date()) {
+    init(folderId: UUID, itemId: UUID, addedAt: Date = Date(), lastUsedAt: Date? = nil) {
         self.folderId = folderId
         self.itemId = itemId
         self.addedAt = addedAt
+        self.lastUsedAt = lastUsedAt ?? addedAt
     }
 }
 
@@ -22,5 +24,6 @@ extension FolderItemRecord: FetchableRecord, PersistableRecord {
         static let folderId = Column(CodingKeys.folderId)
         static let itemId = Column(CodingKeys.itemId)
         static let addedAt = Column(CodingKeys.addedAt)
+        static let lastUsedAt = Column(CodingKeys.lastUsedAt)
     }
 }

@@ -141,6 +141,59 @@ enum AppDatabase {
             )
         }
 
+        migrator.registerMigration("v3") { db in
+            try db.alter(table: "clipboard_items") { t in
+                t.add(column: "copyCount", .integer)
+                    .notNull()
+                    .defaults(to: 1)
+                    .check { $0 >= 0 }
+                t.add(column: "pasteCount", .integer)
+                    .notNull()
+                    .defaults(to: 0)
+                    .check { $0 >= 0 }
+            }
+        }
+
+        migrator.registerMigration("v4") { db in
+            try db.alter(table: "folders") { t in
+                t.add(column: "lastUsedAt", .datetime)
+            }
+            try db.alter(table: "folder_items") { t in
+                t.add(column: "lastUsedAt", .datetime)
+            }
+            try db.execute(sql: "UPDATE folders SET lastUsedAt = createdAt")
+            try db.execute(sql: "UPDATE folder_items SET lastUsedAt = addedAt")
+            try db.create(
+                index: "idx_folders_lastUsedAt",
+                on: "folders",
+                columns: ["lastUsedAt"]
+            )
+            try db.create(
+                index: "idx_folder_items_folderId_lastUsedAt",
+                on: "folder_items",
+                columns: ["folderId", "lastUsedAt"]
+            )
+        }
+
+        migrator.registerMigration("v5") { db in
+            try db.alter(table: "clipboard_items") { t in
+                t.add(column: "lastFavoriteUsedAt", .datetime)
+                t.add(column: "lastSiteUsedAt", .datetime)
+            }
+            try db.execute(sql: "UPDATE clipboard_items SET lastFavoriteUsedAt = updatedAt")
+            try db.execute(sql: "UPDATE clipboard_items SET lastSiteUsedAt = updatedAt")
+            try db.create(
+                index: "idx_clipboard_items_lastFavoriteUsedAt",
+                on: "clipboard_items",
+                columns: ["lastFavoriteUsedAt"]
+            )
+            try db.create(
+                index: "idx_clipboard_items_lastSiteUsedAt",
+                on: "clipboard_items",
+                columns: ["lastSiteUsedAt"]
+            )
+        }
+
         return migrator
     }
 }

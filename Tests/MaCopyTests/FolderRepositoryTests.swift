@@ -35,6 +35,8 @@ final class FolderRepositoryTests: XCTestCase {
         try queue.read { db in
             XCTAssertTrue(try db.tableExists("folders"))
             XCTAssertTrue(try db.tableExists("folder_items"))
+            XCTAssertTrue(try db.columns(in: "folders").contains { $0.name == "lastUsedAt" })
+            XCTAssertTrue(try db.columns(in: "folder_items").contains { $0.name == "lastUsedAt" })
         }
     }
 
@@ -44,13 +46,36 @@ final class FolderRepositoryTests: XCTestCase {
         XCTAssertEqual(a.sortIndex, 0)
         XCTAssertEqual(b.sortIndex, 1)
         let all = try FolderRepository.allFolders()
-        XCTAssertEqual(all.map(\.name), ["A", "B"])
+        XCTAssertEqual(all.map(\.name), ["B", "A"])
     }
 
     func testRenameFolder() throws {
         let f = try FolderRepository.createFolder(name: "Old")
         try FolderRepository.renameFolder(id: f.id, name: "New")
         XCTAssertEqual(try FolderRepository.allFolders().first?.name, "New")
+    }
+
+    func testRecordUseMovesFolderAndMemberToTop() throws {
+        let early = Date(timeIntervalSince1970: 2_000_000_000)
+        let middle = Date(timeIntervalSince1970: 2_000_000_100)
+        let late = Date(timeIntervalSince1970: 2_000_000_200)
+        let first = try FolderRepository.createFolder(name: "First")
+        let second = try FolderRepository.createFolder(name: "Second")
+        let firstItem = try insertItem()
+        let secondItem = try insertItem()
+        try FolderRepository.addMembership(folderId: first.id, itemId: firstItem)
+        try FolderRepository.addMembership(folderId: first.id, itemId: secondItem)
+
+        try FolderRepository.recordUse(folderId: first.id, itemId: firstItem, at: early)
+        try FolderRepository.recordUse(folderId: second.id, at: middle)
+        try FolderRepository.recordUse(folderId: first.id, itemId: secondItem, at: late)
+
+        XCTAssertEqual(try FolderRepository.allFolders().map(\.id), [first.id, second.id])
+        let memberships = try FolderRepository.allMemberships()
+            .filter { $0.folderId == first.id }
+            .sorted { $0.lastUsedAt > $1.lastUsedAt }
+        XCTAssertEqual(memberships.map(\.itemId), [secondItem, firstItem])
+        XCTAssertEqual(memberships.first?.lastUsedAt, late)
     }
 
     func testAddMembershipIsIdempotent() throws {

@@ -17,6 +17,7 @@ final class ClipboardStore: ObservableObject {
     @Published private(set) var folders: [FolderRecord] = []
     @Published private(set) var folderMembership: [UUID: Set<UUID>] = [:]      // folderID -> itemIDs
     @Published private(set) var itemFolderMembership: [UUID: Set<UUID>] = [:]  // itemID -> folderIDs
+    @Published private(set) var folderItemLastUsedAt: [UUID: [UUID: Date]] = [:]
     // Separate signal: membership changes must NOT bump dataVersion (which drives the full
     // O(n) item-list recompute), exactly like previewsByHash. The folder panes react to this.
     @Published private(set) var folderVersion: Int = 0
@@ -24,6 +25,7 @@ final class ClipboardStore: ObservableObject {
     private var itemsCancellable: AnyDatabaseCancellable?
     private var foldersCancellable: AnyDatabaseCancellable?
     private let recentLimit = 2000
+    private let databaseWriter: DatabaseWriter
 
     // List rows only need preview-length data for rendering, sectioning and fuzzy
     // search; the cap keeps a single multi-MB clip from bloating the published array
@@ -32,7 +34,8 @@ final class ClipboardStore: ObservableObject {
     nonisolated static let listTextCap = 4096
     nonisolated static let listOCRCap = 500
 
-    private init() {
+    init(databaseWriter: DatabaseWriter = AppDatabase.shared) {
+        self.databaseWriter = databaseWriter
         startObserving()
         startObservingFolders()
     }
@@ -64,16 +67,20 @@ final class ClipboardStore: ObservableObject {
         try? FolderRepository.addMembership(folderId: folderId, itemId: itemId)
     }
 
+    func recordFolderUse(folderId: UUID, itemId: UUID? = nil) {
+        try? FolderRepository.recordUse(folderId: folderId, itemId: itemId)
+    }
+
     private func startObservingFolders() {
         let observation = ValueObservation.tracking { db -> ([FolderRecord], [FolderItemRecord]) in
             let folders = try FolderRecord
-                .order(FolderRecord.Columns.sortIndex)
+                .order(FolderRecord.Columns.lastUsedAt.desc, FolderRecord.Columns.sortIndex.desc)
                 .fetchAll(db)
             let memberships = try FolderItemRecord.fetchAll(db)
             return (folders, memberships)
         }
         foldersCancellable = observation.start(
-            in: AppDatabase.shared,
+            in: databaseWriter,
             scheduling: .async(onQueue: DispatchQueue.main),
             onError: { error in
                 Self.logger.error("folders observation failed: \(error, privacy: .private)")
@@ -90,12 +97,15 @@ final class ClipboardStore: ObservableObject {
         self.folders = folders
         var byFolder: [UUID: Set<UUID>] = [:]
         var byItem: [UUID: Set<UUID>] = [:]
+        var useByFolder: [UUID: [UUID: Date]] = [:]
         for m in memberships {
             byFolder[m.folderId, default: []].insert(m.itemId)
             byItem[m.itemId, default: []].insert(m.folderId)
+            useByFolder[m.folderId, default: [:]][m.itemId] = m.lastUsedAt
         }
         self.folderMembership = byFolder
         self.itemFolderMembership = byItem
+        self.folderItemLastUsedAt = useByFolder
         self.folderVersion &+= 1
     }
 
@@ -127,14 +137,15 @@ final class ClipboardStore: ObservableObject {
                        preview, imagePath, imageWidth, imageHeight,
                        substr(ocrText, 1, \(ClipboardStore.listOCRCap)) AS ocrText,
                        sourceAppBundleId, sourceAppName, sourceAppIconPath,
-                       sourceFilePath, byteSize, isFavorite, comment
+                       sourceFilePath, byteSize, isFavorite, comment,
+                       copyCount, pasteCount, lastFavoriteUsedAt, lastSiteUsedAt
                 FROM clipboard_items
                 ORDER BY updatedAt DESC
                 LIMIT \(recentLimit)
                 """).fetchAll(db)
         }
         itemsCancellable = itemsObservation.start(
-            in: AppDatabase.shared,
+            in: databaseWriter,
             scheduling: .async(onQueue: DispatchQueue.main),
             onError: { error in
                 Self.logger.error("items observation failed: \(error, privacy: .private)")

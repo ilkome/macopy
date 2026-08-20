@@ -5,7 +5,6 @@ struct ItemRow: View {
     let model: RowModel
     var displayOverride: String? = nil
     var showBadge: Bool = true
-    var quickNumber: Int? = nil
 
     private var item: ClipboardItemRecord { model.item }
     private var selected: Bool { model.isSelected }
@@ -31,12 +30,12 @@ struct ItemRow: View {
                 // here gets stuck in a LazyVStack row (lower rows keep the number after ⌘ is released).
                 ZStack {
                     leadingBadge
-                        .opacity(quickNumber == nil ? 1 : 0)
-                    Text(quickNumber.map(String.init) ?? "")
+                        .opacity(model.quickPasteNumber == nil ? 1 : 0)
+                    Text(model.quickPasteNumber.map(String.init) ?? "")
                         .font(.system(size: 15, weight: .bold, design: .rounded))
                         .foregroundStyle(Color.accentColor)
                         .frame(width: 26, height: 26)
-                        .opacity(quickNumber == nil ? 0 : 1)
+                        .opacity(model.quickPasteNumber == nil ? 0 : 1)
                 }
             }
             textView

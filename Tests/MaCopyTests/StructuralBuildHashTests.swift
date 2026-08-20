@@ -2,6 +2,34 @@ import XCTest
 @testable import MaCopy
 
 final class StructuralBuildHashTests: XCTestCase {
+    func testCounterChangeRefreshesReusedRowWithoutChangingStructuralHashInputs() {
+        let original = ClipboardItemRecord(
+            contentHash: "row",
+            kind: .text,
+            text: "row",
+            preview: "row",
+            copyCount: 1,
+            pasteCount: 0
+        )
+        var updated = original
+        updated.copyCount = 2
+
+        XCTAssertFalse(ContentView.rowItemUnchanged(original, updated))
+        XCTAssertEqual(
+            ContentView.structuralBuildHash(
+                q: "row",
+                urlFirst: false,
+                tab: .all,
+                rows: [(original.id, original.updatedAt)]
+            ),
+            ContentView.structuralBuildHash(
+                q: "row",
+                urlFirst: false,
+                tab: .all,
+                rows: [(updated.id, updated.updatedAt)]
+            )
+        )
+    }
 
     private let idA = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
     private let idB = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!

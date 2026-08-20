@@ -15,6 +15,10 @@ final class ClipboardMonitor {
     private static let pruneEveryNInserts = 100
     private let imageExts: Set<String> = ["png", "jpg", "jpeg", "gif", "tiff", "bmp", "heic", "webp"]
     private static let privacyLogger = Logger(subsystem: "dev.ilkome.MaCopy", category: "privacy.filter")
+    nonisolated private static let storageLogger = Logger(
+        subsystem: "dev.ilkome.MaCopy",
+        category: "storage"
+    )
 
     private static let allowedImageRoots: [String] = {
         let fm = FileManager.default
@@ -138,14 +142,6 @@ final class ClipboardMonitor {
             let hashInput = kind == .url ? URLNormalizer.normalize(text) : text
             let hash = Self.sha256(Data(hashInput.utf8))
 
-            if let existing = try? ClipboardItemRepository.findItem(byHash: hash) {
-                try? ClipboardItemRepository.updateUpdatedAt(id: existing.id)
-                if kind == .url {
-                    await MainActor.run { LinkPreviewService.shared.fetchIfNeeded(for: text) }
-                }
-                return
-            }
-
             let item = ClipboardItemRecord(
                 contentHash: hash,
                 kind: kind,
@@ -157,10 +153,14 @@ final class ClipboardMonitor {
                 sourceFilePath: sourceFile,
                 byteSize: text.utf8.count
             )
-            try? ClipboardItemRepository.insertItem(item)
-            await MainActor.run {
-                ClipboardMonitor.shared.notePotentialPrune()
-                if kind == .url { LinkPreviewService.shared.fetchIfNeeded(for: text) }
+            do {
+                let result = try ClipboardItemRepository.insertOrRecordObservedCopy(item)
+                await MainActor.run {
+                    if result.inserted { ClipboardMonitor.shared.notePotentialPrune() }
+                    if kind == .url { LinkPreviewService.shared.fetchIfNeeded(for: text) }
+                }
+            } catch {
+                Self.storageLogger.error("observed text copy persistence failed: \(error, privacy: .private)")
             }
         }
     }
@@ -171,12 +171,7 @@ final class ClipboardMonitor {
         fileURL: URL?,
         frontApp: NSRunningApplication?
     ) {
-        let hash = Self.hashImage(data)  // 64KB-prefix hash is cheap; dedup stays serial on main
-
-        if let existing = try? ClipboardItemRepository.findItem(byHash: hash) {
-            try? ClipboardItemRepository.updateUpdatedAt(id: existing.id)
-            return
-        }
+        let hash = Self.hashImage(data)
 
         let filename = "\(UUID().uuidString).\(ext)"
         let iconPath = frontApp.flatMap { IconCache.savedIcon(for: $0) }  // @MainActor
@@ -190,6 +185,15 @@ final class ClipboardMonitor {
         // Encrypt + write the full image (AES over multi-MB) and persist off the main thread.
         // The row is inserted only after the file lands, so it never references a missing file.
         Task.detached(priority: .userInitiated) {
+            do {
+                if try ClipboardItemRepository.recordObservedCopyIfPresent(hash: hash, updatedAt: Date()) != nil {
+                    return
+                }
+            } catch {
+                Self.storageLogger.error("observed image copy lookup failed: \(error, privacy: .private)")
+                return
+            }
+
             do { try ImageStore.write(data, filename: filename) } catch { return }
             if let thumbData = ImageCache.encodedThumbnail(from: data, maxPixelSize: ImageCache.thumbStorePixelSize) {
                 try? ImageStore.write(thumbData, filename: ImageCache.thumbFilename(for: filename))
@@ -209,7 +213,22 @@ final class ClipboardMonitor {
                 sourceFilePath: sourcePath,
                 byteSize: data.count
             )
-            try? ClipboardItemRepository.insertItem(item)
+            let result: ClipboardItemRepository.ObservedCopyResult
+            do {
+                result = try ClipboardItemRepository.insertOrRecordObservedCopy(item)
+            } catch {
+                ImageStore.delete(filename: filename)
+                ImageStore.delete(filename: ImageCache.thumbFilename(for: filename))
+                Self.storageLogger.error("observed image copy persistence failed: \(error, privacy: .private)")
+                return
+            }
+
+            guard result.inserted else {
+                ImageStore.delete(filename: filename)
+                ImageStore.delete(filename: ImageCache.thumbFilename(for: filename))
+                return
+            }
+
             await MainActor.run { ClipboardMonitor.shared.notePotentialPrune() }
 
             if ocrEnabled {

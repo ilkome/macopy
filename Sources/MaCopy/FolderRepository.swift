@@ -16,7 +16,9 @@ enum FolderRepository {
 
     static func allFolders() throws -> [FolderRecord] {
         try pool.read { db in
-            try FolderRecord.order(FolderRecord.Columns.sortIndex).fetchAll(db)
+            try FolderRecord
+                .order(FolderRecord.Columns.lastUsedAt.desc, FolderRecord.Columns.sortIndex.desc)
+                .fetchAll(db)
         }
     }
 
@@ -41,6 +43,20 @@ enum FolderRepository {
             try FolderRecord
                 .filter(FolderRecord.Columns.id == id)
                 .updateAll(db, FolderRecord.Columns.name.set(to: name))
+        }
+    }
+
+    static func recordUse(folderId: UUID, itemId: UUID? = nil, at date: Date = Date()) throws {
+        try pool.write { db in
+            try FolderRecord
+                .filter(FolderRecord.Columns.id == folderId)
+                .updateAll(db, FolderRecord.Columns.lastUsedAt.set(to: date))
+            if let itemId {
+                try FolderItemRecord
+                    .filter(FolderItemRecord.Columns.folderId == folderId)
+                    .filter(FolderItemRecord.Columns.itemId == itemId)
+                    .updateAll(db, FolderItemRecord.Columns.lastUsedAt.set(to: date))
+            }
         }
     }
 

@@ -1,6 +1,27 @@
 import Foundation
 
 enum SelectionHelpers {
+    static func quickPasteAssignments(visible: [Selectable]) -> [UUID: Int] {
+        Dictionary(uniqueKeysWithValues: visible.prefix(9).enumerated().compactMap { index, selection in
+            guard case let .item(id) = selection else { return nil }
+            return (id, index + 1)
+        })
+    }
+
+    static func applyQuickPasteNumbers(
+        rowsById: [UUID: RowModel],
+        visible: [Selectable],
+        commandHeld: Bool
+    ) {
+        for row in rowsById.values where row.quickPasteNumber != nil {
+            row.quickPasteNumber = nil
+        }
+        guard commandHeld else { return }
+        for (id, number) in quickPasteAssignments(visible: visible) {
+            rowsById[id]?.quickPasteNumber = number
+        }
+    }
+
     static func visibleSelectables(
         sections: [RowSection],
         tab: Tab,

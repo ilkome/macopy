@@ -2,6 +2,11 @@ import Foundation
 import Fuse
 
 enum SearchEngine {
+    enum MatchingTier: Int, Sendable {
+        case fuse
+        case subsequence
+    }
+
     struct ParsedQuery: Equatable, Sendable {
         let text: String
         let urlFirst: Bool
@@ -12,12 +17,15 @@ enum SearchEngine {
         let updatedAt: Date
         let kind: ClipKind
         let fields: [String]
+        let copyCount: Int64
+        let pasteCount: Int64
     }
 
     struct ScoredResult: Sendable {
         let id: UUID
         let kind: ClipKind
         let score: Double
+        let matchingTier: MatchingTier
         // Snippet stays as field text + match ranges; the AttributedString is built
         // lazily per visible row (see RowModel.snippet), not eagerly for every result.
         let field: String
@@ -27,6 +35,10 @@ enum SearchEngine {
     // Top-N results by score are kept; nobody scrolls past a few hundred matches,
     // and the tail only burns reconcile/section-build work.
     static let resultCap = 300
+    static let copyWeight = 1.0
+    static let pasteWeight = 2.0
+    static let usageScale = 0.03
+    static let usageBoostCap = 0.15
 
     static func parseQuery(_ raw: String) -> ParsedQuery {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -67,8 +79,31 @@ enum SearchEngine {
                         if let s = preview.hostname, !s.isEmpty { fields.append(s) }
                     }
                 }
-                return ScoringInput(id: item.id, updatedAt: item.updatedAt, kind: item.kind, fields: fields)
+                return ScoringInput(
+                    id: item.id,
+                    updatedAt: item.updatedAt,
+                    kind: item.kind,
+                    fields: fields,
+                    copyCount: item.copyCount,
+                    pasteCount: item.pasteCount
+                )
             }
+    }
+
+    static func usageBoost(copyCount: Int64, pasteCount: Int64) -> Double {
+        let safeCopyCount = Double(max(0, copyCount))
+        let safePasteCount = Double(max(0, pasteCount))
+        let usage = copyWeight * log1p(safeCopyCount)
+            + pasteWeight * log1p(safePasteCount)
+        return min(usageBoostCap, usage * usageScale)
+    }
+
+    static func rankingScore(
+        matchScore: Double,
+        copyCount: Int64,
+        pasteCount: Int64
+    ) -> Double {
+        matchScore - usageBoost(copyCount: copyCount, pasteCount: pasteCount)
     }
 
     static func performScoring(
@@ -78,13 +113,20 @@ enum SearchEngine {
     ) -> [ScoredResult] {
         let fuse = Fuse(location: 0, distance: 1_000_000, threshold: 0.4)
         guard let pattern = fuse.createPattern(from: query) else { return [] }
-        var scored: [(ScoringInput, Double, String, [CountableClosedRange<Int>])] = []
+        var scored: [(
+            input: ScoringInput,
+            tier: MatchingTier,
+            rankingScore: Double,
+            field: String,
+            ranges: [CountableClosedRange<Int>]
+        )] = []
         scored.reserveCapacity(inputs.count)
         for input in inputs {
             if Task.isCancelled { return [] }
             var bestScore: Double?
             var bestField: String?
             var bestRanges: [CountableClosedRange<Int>] = []
+            var matchingTier: MatchingTier = .fuse
             for field in input.fields {
                 guard let r = fuse.search(pattern, in: field) else { continue }
                 if bestScore == nil || r.score < bestScore! {
@@ -94,6 +136,7 @@ enum SearchEngine {
                 }
             }
             if bestScore == nil {
+                matchingTier = .subsequence
                 for field in input.fields {
                     guard let r = SubsequenceSearch.search(pattern: query, in: field) else { continue }
                     if bestScore == nil || r.score < bestScore! {
@@ -104,21 +147,36 @@ enum SearchEngine {
                 }
             }
             if let s = bestScore, let field = bestField, !bestRanges.isEmpty {
-                scored.append((input, s, field, bestRanges))
+                let rankingScore = rankingScore(
+                    matchScore: s,
+                    copyCount: input.copyCount,
+                    pasteCount: input.pasteCount
+                )
+                scored.append((input, matchingTier, rankingScore, field, bestRanges))
             }
         }
         scored.sort { lhs, rhs in
             if urlFirst {
-                let l = lhs.0.kind == .url
-                let r = rhs.0.kind == .url
+                let l = lhs.input.kind == .url
+                let r = rhs.input.kind == .url
                 if l != r { return l && !r }
             }
-            if lhs.1 != rhs.1 { return lhs.1 < rhs.1 }
-            if lhs.0.updatedAt != rhs.0.updatedAt { return lhs.0.updatedAt > rhs.0.updatedAt }
-            return lhs.0.id.uuidString < rhs.0.id.uuidString
+            if lhs.tier != rhs.tier { return lhs.tier.rawValue < rhs.tier.rawValue }
+            if lhs.rankingScore != rhs.rankingScore { return lhs.rankingScore < rhs.rankingScore }
+            if lhs.input.updatedAt != rhs.input.updatedAt {
+                return lhs.input.updatedAt > rhs.input.updatedAt
+            }
+            return lhs.input.id.uuidString < rhs.input.id.uuidString
         }
-        return scored.prefix(resultCap).map { input, score, field, ranges in
-            ScoredResult(id: input.id, kind: input.kind, score: score, field: field, ranges: ranges)
+        return scored.prefix(resultCap).map { candidate in
+            ScoredResult(
+                id: candidate.input.id,
+                kind: candidate.input.kind,
+                score: candidate.rankingScore,
+                matchingTier: candidate.tier,
+                field: candidate.field,
+                ranges: candidate.ranges
+            )
         }
     }
 

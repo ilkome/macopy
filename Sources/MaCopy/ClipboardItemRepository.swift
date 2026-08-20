@@ -3,6 +3,11 @@ import GRDB
 import CryptoKit
 
 enum ClipboardItemRepository {
+    struct ObservedCopyResult: Sendable {
+        let id: UUID
+        let inserted: Bool
+    }
+
     #if DEBUG
     /// Tests point this at an in-memory writer; production always uses the shared pool.
     nonisolated(unsafe) static var poolOverride: DatabaseWriter?
@@ -34,6 +39,103 @@ enum ClipboardItemRepository {
     static func insertItem(_ item: ClipboardItemRecord) throws {
         try pool.write { db in
             try item.insert(db)
+        }
+    }
+
+    @discardableResult
+    static func recordCopy(id: UUID) throws -> Bool {
+        try incrementCounter(column: "copyCount", id: id)
+    }
+
+    @discardableResult
+    static func recordPaste(id: UUID) throws -> Bool {
+        try incrementCounter(column: "pasteCount", id: id)
+    }
+
+    static func recordFavoriteUse(id: UUID, at date: Date = Date()) throws {
+        try recordUse(column: ClipboardItemRecord.Columns.lastFavoriteUsedAt, id: id, at: date)
+    }
+
+    static func recordSiteUse(id: UUID, at date: Date = Date()) throws {
+        try recordUse(column: ClipboardItemRecord.Columns.lastSiteUsedAt, id: id, at: date)
+    }
+
+    private static func recordUse(column: Column, id: UUID, at date: Date) throws {
+        _ = try pool.write { db in
+            try ClipboardItemRecord
+                .filter(ClipboardItemRecord.Columns.id == id)
+                .updateAll(db, column.set(to: date))
+        }
+    }
+
+    private static func incrementCounter(column: String, id: UUID) throws -> Bool {
+        try pool.write { db in
+            try db.execute(
+                sql: """
+                    UPDATE clipboard_items
+                    SET \(column) = CASE
+                        WHEN \(column) < ? THEN \(column) + 1
+                        ELSE \(column)
+                    END
+                    WHERE id = ?
+                    """,
+                arguments: [Int64.max, id]
+            )
+            return db.changesCount > 0
+        }
+    }
+
+    static func insertOrRecordObservedCopy(
+        _ suppliedItem: ClipboardItemRecord
+    ) throws -> ObservedCopyResult {
+        try pool.write { db in
+            if let existing = try ClipboardItemRecord
+                .filter(ClipboardItemRecord.Columns.contentHash == suppliedItem.contentHash)
+                .fetchOne(db)
+            {
+                try db.execute(
+                    sql: """
+                        UPDATE clipboard_items
+                        SET copyCount = CASE
+                                WHEN copyCount < ? THEN copyCount + 1
+                                ELSE copyCount
+                            END,
+                            updatedAt = ?
+                        WHERE id = ?
+                        """,
+                    arguments: [Int64.max, suppliedItem.updatedAt, existing.id]
+                )
+                return ObservedCopyResult(id: existing.id, inserted: false)
+            }
+
+            var item = suppliedItem
+            item.copyCount = 1
+            item.pasteCount = 0
+            try item.insert(db)
+            return ObservedCopyResult(id: item.id, inserted: true)
+        }
+    }
+
+    static func recordObservedCopyIfPresent(hash: String, updatedAt: Date) throws -> UUID? {
+        try pool.write { db in
+            guard let id = try UUID.fetchOne(
+                db,
+                sql: "SELECT id FROM clipboard_items WHERE contentHash = ?",
+                arguments: [hash]
+            ) else { return nil }
+            try db.execute(
+                sql: """
+                    UPDATE clipboard_items
+                    SET copyCount = CASE
+                            WHEN copyCount < ? THEN copyCount + 1
+                            ELSE copyCount
+                        END,
+                        updatedAt = ?
+                    WHERE id = ?
+                    """,
+                arguments: [Int64.max, updatedAt, id]
+            )
+            return id
         }
     }
 
@@ -118,6 +220,8 @@ enum ClipboardItemRepository {
         clone.createdAt = now
         clone.updatedAt = now
         clone.contentHash = syntheticHash
+        clone.copyCount = 0
+        clone.pasteCount = 0
         try pool.write { db in try clone.insert(db) }
         return newID
     }
@@ -132,9 +236,16 @@ enum ClipboardItemRepository {
 
     static func updateFavorite(id: UUID, isFavorite: Bool) throws {
         _ = try pool.write { db in
-            try ClipboardItemRecord
-                .filter(ClipboardItemRecord.Columns.id == id)
-                .updateAll(db, ClipboardItemRecord.Columns.isFavorite.set(to: isFavorite))
+            let request = ClipboardItemRecord.filter(ClipboardItemRecord.Columns.id == id)
+            if isFavorite {
+                try request.updateAll(
+                    db,
+                    ClipboardItemRecord.Columns.isFavorite.set(to: true),
+                    ClipboardItemRecord.Columns.lastFavoriteUsedAt.set(to: Date())
+                )
+            } else {
+                try request.updateAll(db, ClipboardItemRecord.Columns.isFavorite.set(to: false))
+            }
         }
     }
 

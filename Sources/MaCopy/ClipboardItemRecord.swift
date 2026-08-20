@@ -24,6 +24,10 @@ struct ClipboardItemRecord: Codable, Identifiable, Hashable, Sendable {
     var byteSize: Int
     var isFavorite: Bool
     var comment: String?
+    var copyCount: Int64
+    var pasteCount: Int64
+    var lastFavoriteUsedAt: Date
+    var lastSiteUsedAt: Date
 
     var kind: ClipKind { ClipKind(rawValue: kindRaw) ?? .text }
 
@@ -45,7 +49,11 @@ struct ClipboardItemRecord: Codable, Identifiable, Hashable, Sendable {
         sourceFilePath: String? = nil,
         byteSize: Int = 0,
         isFavorite: Bool = false,
-        comment: String? = nil
+        comment: String? = nil,
+        copyCount: Int64 = 1,
+        pasteCount: Int64 = 0,
+        lastFavoriteUsedAt: Date? = nil,
+        lastSiteUsedAt: Date? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -65,6 +73,10 @@ struct ClipboardItemRecord: Codable, Identifiable, Hashable, Sendable {
         self.byteSize = byteSize
         self.isFavorite = isFavorite
         self.comment = comment
+        self.copyCount = copyCount
+        self.pasteCount = pasteCount
+        self.lastFavoriteUsedAt = lastFavoriteUsedAt ?? updatedAt
+        self.lastSiteUsedAt = lastSiteUsedAt ?? updatedAt
     }
 }
 
@@ -90,5 +102,9 @@ extension ClipboardItemRecord: FetchableRecord, PersistableRecord {
         static let byteSize = Column(CodingKeys.byteSize)
         static let isFavorite = Column(CodingKeys.isFavorite)
         static let comment = Column(CodingKeys.comment)
+        static let copyCount = Column(CodingKeys.copyCount)
+        static let pasteCount = Column(CodingKeys.pasteCount)
+        static let lastFavoriteUsedAt = Column(CodingKeys.lastFavoriteUsedAt)
+        static let lastSiteUsedAt = Column(CodingKeys.lastSiteUsedAt)
     }
 }

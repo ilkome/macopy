@@ -18,6 +18,7 @@ final class RowModel: Identifiable {
         }
     }
     var isSelected: Bool = false
+    var quickPasteNumber: Int?
 
     var id: UUID { item.id }
 
